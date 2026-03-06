@@ -96,7 +96,16 @@ class MetricsConfig:
         logger.info(f"Initialized MetricsConfig - Region: {self.region}, Mock Mode: {self.mock_mode}")
 
     def _load_env_from_secrets(self) -> None:
-        """Load environment variables from AWS Secrets Manager."""
+        """Load environment variables from AWS Secrets Manager.
+        
+        Reads the secret name from the METRICS_SECRET_NAME env var
+        (injected by the plugin secrets framework).
+        """
+        secret_name = os.getenv('METRICS_SECRET_NAME')
+        if not secret_name:
+            logger.warning("METRICS_SECRET_NAME not set, falling back to local environment variables")
+            return
+
         try:
             session = boto3.session.Session()
             client = session.client(
@@ -104,15 +113,13 @@ class MetricsConfig:
                 region_name=os.getenv('AWS_REGION', 'us-east-1')
             )
 
-            # Get the .env content from secrets manager
-            response = client.get_secret_value(SecretId='oscar-central-env-dev-cdk')
+            response = client.get_secret_value(SecretId=secret_name)
             env_content = response['SecretString']
 
             # Load the .env content into environment variables
             config_stream = StringIO(env_content)
             load_dotenv(stream=config_stream, override=True)
-
-            logger.info("Successfully loaded environment variables from AWS Secrets Manager")
+            logger.info(f"Successfully loaded environment variables from secret: {secret_name}")
 
         except Exception as e:
             logger.error(f"Error loading environment from secrets manager: {e}")

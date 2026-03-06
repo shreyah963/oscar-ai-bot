@@ -11,14 +11,6 @@ from aws_cdk import aws_iam as iam
 def get_policies(account_id: str, region: str, env: str, metrics_account_role: Optional[str] = None) -> List[iam.PolicyStatement]:
     policies = [
         iam.PolicyStatement(
-            sid="MetricsSecretsAccess",
-            effect=iam.Effect.ALLOW,
-            actions=["secretsmanager:GetSecretValue"],
-            resources=[
-                f"arn:aws:secretsmanager:{region}:{account_id}:secret:oscar-central-env-{env}*"
-            ],
-        ),
-        iam.PolicyStatement(
             sid="VPCEndpointAccess",
             effect=iam.Effect.ALLOW,
             actions=["s3:GetObject", "s3:PutObject"],
