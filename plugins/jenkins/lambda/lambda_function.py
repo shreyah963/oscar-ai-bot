@@ -19,11 +19,11 @@ from typing import Any, Dict
 
 from config import config
 from jenkins_client import JenkinsClient
-from job_definitions import job_registry
+from jenkinsfile_fetcher import get_job_registry
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
@@ -52,8 +52,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             if isinstance(param, dict) and 'name' in param and 'value' in param:
                 params[param['name']] = param['value']
 
-        # Initialize Jenkins client
-        jenkins_client = JenkinsClient()
+        # Initialize Jenkins client with fetched job registry
+        job_registry = get_job_registry()
+        jenkins_client = JenkinsClient(job_registry)
 
         # Route to appropriate handler
         match function_name:
@@ -65,13 +66,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 result = handle_get_job_info(jenkins_client, params)
             case 'list_jobs':
                 result = handle_list_jobs(jenkins_client)
+            case 'get_build_status':
+                result = handle_get_build_status(jenkins_client, params)
             case _:
                 result = {
                     'status': 'error',
                     'message': f'Unknown function: {function_name}',
                     'available_functions': [
                         'trigger_job', 'test_connection',
-                        'get_job_info', 'list_jobs'
+                        'get_job_info', 'list_jobs', 'get_build_status'
                     ]
                 }
 
@@ -183,7 +186,7 @@ def handle_trigger_job(jenkins_client: JenkinsClient, params: Dict[str, Any]) ->
         return {
             'status': 'error',
             'message': 'job_name parameter is required for trigger_job function',
-            'available_jobs': job_registry.list_jobs()
+            'available_jobs': jenkins_client.job_registry.list_jobs()
         }
 
     # Extract job parameters (all params except job_name and confirmed)
@@ -316,6 +319,34 @@ def handle_list_jobs(jenkins_client: JenkinsClient) -> Dict[str, Any]:
         result['message'] = "Available Jenkins jobs:\n\n" + "\n".join(formatted_jobs)
 
     return result
+
+
+def handle_get_build_status(jenkins_client: JenkinsClient, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle getting build status for a specific job and build number."""
+    job_name = params.get('job_name')
+    build_number_str = params.get('build_number')
+
+    if not job_name:
+        return {
+            'status': 'error',
+            'message': 'job_name parameter is required',
+        }
+
+    if not build_number_str:
+        return {
+            'status': 'error',
+            'message': 'build_number parameter is required',
+        }
+
+    try:
+        build_number = int(build_number_str)
+    except (ValueError, TypeError):
+        return {
+            'status': 'error',
+            'message': f'build_number must be an integer, got: {build_number_str}',
+        }
+
+    return jenkins_client.get_build_status(job_name, build_number)
 
 
 def create_response(event: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:

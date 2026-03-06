@@ -20,10 +20,11 @@ from typing import Any, Dict, Optional
 
 import requests
 from config import config
-from job_definitions import job_registry
+from job_definitions import JobRegistry
 from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class JenkinsCredentials:
@@ -76,10 +77,12 @@ class JenkinsCredentials:
 class JenkinsClient:
     """Main Jenkins client for job operations."""
 
-    def __init__(self):
+    def __init__(self, job_registry: JobRegistry):
         self.credentials = JenkinsCredentials()
         self.session = requests.Session()
         self.session.timeout = config.request_timeout
+        self.session.verify = config.verify_ssl
+        self.job_registry = job_registry
 
     def _get_build_number_from_queue(self, queue_location: str, auth: HTTPBasicAuth, max_attempts: int = 15) -> Optional[int]:
         """
@@ -150,25 +153,25 @@ class JenkinsClient:
         try:
 
             # Validate job exists and parameters
-            job_def = job_registry.get_job(job_name)
+            job_def = self.job_registry.get_job(job_name)
             if not job_def:
                 logger.error(f"JENKINS CLIENT: Unknown job '{job_name}'")
                 return {
                     'status': 'error',
                     'message': f'Unknown job: {job_name}',
-                    'available_jobs': job_registry.list_jobs()
+                    'available_jobs': self.job_registry.list_jobs()
                 }
 
             # Validate and normalize parameters
             try:
-                validated_params = job_registry.validate_job_parameters(job_name, parameters)
+                validated_params = self.job_registry.validate_job_parameters(job_name, parameters)
 
             except ValueError as e:
                 logger.error(f"JENKINS CLIENT: Parameter validation failed: {e}")
                 return {
                     'status': 'error',
                     'message': f'Parameter validation failed: {str(e)}',
-                    'job_info': job_registry.get_job_info(job_name)
+                    'job_info': self.job_registry.get_job_info(job_name)
                 }
 
             # Build the request
@@ -306,6 +309,83 @@ class JenkinsClient:
                 'jenkins_url': config.jenkins_url
             }
 
+    def get_build_status(self, job_name: str, build_number: int) -> Dict[str, Any]:
+        """Get the status of a specific Jenkins build.
+
+        Args:
+            job_name: Name of the Jenkins job
+            build_number: Build number to check
+
+        Returns:
+            Dictionary containing build status information
+        """
+        try:
+            url = config.get_build_api_url(job_name, build_number)
+            auth = self.credentials.get_auth()
+
+            logger.info(f"Getting build status for {job_name} #{build_number}")
+            response = self.session.get(url, auth=auth)
+
+            if response.status_code == 200:
+                build_info = response.json()
+                building = build_info.get('building', False)
+                result_value = build_info.get('result')
+
+                if building:
+                    status = 'IN_PROGRESS'
+                elif result_value:
+                    status = result_value  # SUCCESS, FAILURE, ABORTED, UNSTABLE
+                else:
+                    status = 'UNKNOWN'
+
+                duration_ms = build_info.get('duration', 0)
+                duration_str = f"{duration_ms // 60000}m {(duration_ms % 60000) // 1000}s" if duration_ms else "N/A"
+
+                return {
+                    'status': 'success',
+                    'job_name': job_name,
+                    'build_number': build_number,
+                    'build_status': status,
+                    'duration': duration_str,
+                    'display_name': build_info.get('displayName', f'#{build_number}'),
+                    'timestamp': build_info.get('timestamp'),
+                    'build_url': config.get_workflow_url(job_name, build_number),
+                }
+            elif response.status_code == 404:
+                return {
+                    'status': 'error',
+                    'message': f'Build #{build_number} not found for job {job_name}',
+                    'job_url': config.get_job_url(job_name),
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': f'Failed to get build status: HTTP {response.status_code}',
+                    'http_status': response.status_code,
+                    'build_url': config.get_workflow_url(job_name, build_number),
+                }
+
+        except requests.exceptions.Timeout:
+            return {
+                'status': 'error',
+                'message': f'Request timed out after {config.request_timeout} seconds',
+                'job_name': job_name,
+                'build_number': build_number,
+            }
+        except requests.exceptions.ConnectionError as e:
+            return {
+                'status': 'error',
+                'message': 'Failed to connect to Jenkins server',
+                'error': f'Connection error: {str(e)}',
+            }
+        except Exception as e:
+            logger.error(f"Error getting build status for {job_name} #{build_number}: {e}", exc_info=True)
+            return {
+                'status': 'error',
+                'message': 'Unexpected error getting build status',
+                'error': str(e),
+            }
+
     def get_job_info(self, job_name: str) -> Dict[str, Any]:
         """
         Get information about a Jenkins job.
@@ -319,13 +399,13 @@ class JenkinsClient:
         try:
 
             # Check if we know about this job
-            job_def = job_registry.get_job(job_name)
+            job_def = self.job_registry.get_job(job_name)
             if not job_def:
                 logger.warning(f"JENKINS CLIENT: Unknown job '{job_name}'")
                 return {
                     'status': 'error',
                     'message': f'Unknown job: {job_name}',
-                    'available_jobs': job_registry.list_jobs()
+                    'available_jobs': self.job_registry.list_jobs()
                 }
 
             # Return job definition info (don't need to call Jenkins API for this)
@@ -356,8 +436,8 @@ class JenkinsClient:
             Dictionary containing available jobs and their information
         """
         jobs_info = {}
-        for job_name in job_registry.list_jobs():
-            jobs_info[job_name] = job_registry.get_job_info(job_name)
+        for job_name in self.job_registry.list_jobs():
+            jobs_info[job_name] = self.job_registry.get_job_info(job_name)
 
         return {
             'status': 'success',

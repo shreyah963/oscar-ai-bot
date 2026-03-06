@@ -14,6 +14,7 @@ import os
 from typing import Optional
 
 from aws_cdk import App, Environment
+from dotenv import load_dotenv
 
 from plugins.jenkins import JenkinsPlugin
 from plugins.metrics.build import MetricsBuildPlugin
@@ -28,8 +29,7 @@ from stacks.secrets_stack import OscarSecretsStack
 from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
 
-# Load environment variables from .env file
-# load_dotenv()
+load_dotenv()
 
 
 # Configure logging
@@ -84,7 +84,8 @@ def main() -> None:
         app, f"OscarSecretsStack-{environment}",
         env=env,
         description="OSCAR secrets management",
-        environment=environment
+        environment=environment,
+        plugins=plugins
     )
 
     # 3. Storage (DynamoDB tables)

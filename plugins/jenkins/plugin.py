@@ -3,7 +3,9 @@
 
 """Jenkins plugin for OSCAR."""
 
-from plugins.base_plugin import LambdaConfig, OscarPlugin
+import os
+
+from plugins.base_plugin import LambdaConfig, OscarPlugin, SecretConfig
 from plugins.jenkins.action_groups import get_action_groups
 from plugins.jenkins.iam_policies import get_policies
 from plugins.jenkins.instructions import (AGENT_INSTRUCTION,
@@ -22,6 +24,13 @@ class JenkinsPlugin(OscarPlugin):
             timeout_seconds=120,
             memory_size=512,
             reserved_concurrency=5,
+            environment_variables={
+                "JENKINS_URL": os.environ.get("JENKINS_URL", "https://build.ci.opensearch.org"),
+                "JENKINS_VERIFY_SSL": os.environ.get("JENKINS_VERIFY_SSL", "true"),
+                "JENKINSFILE_GITHUB_REPO": os.environ.get("JENKINSFILE_GITHUB_REPO", "opensearch-project/opensearch-build"),
+                "JENKINSFILE_GITHUB_BRANCH": os.environ.get("JENKINSFILE_GITHUB_BRANCH", "main"),
+                "JENKINSFILE_IGNORE_LIST": os.environ.get("JENKINSFILE_IGNORE_LIST", ""),
+            },
         )
 
     def get_iam_policies(self, account_id, region, env):
@@ -38,6 +47,15 @@ class JenkinsPlugin(OscarPlugin):
 
     def get_collaborator_name(self):
         return "Jenkins-Specialist"
+
+    def get_secrets(self):
+        return [
+            SecretConfig(
+                name_suffix="api-token",
+                description="Jenkins API token in username:token format",
+                env_var="JENKINS_SECRET_NAME",
+            ),
+        ]
 
     def get_access_level(self):
         return "privileged"
