@@ -3,7 +3,7 @@
 
 """Build metrics plugin for OSCAR."""
 
-from plugins.base_plugin import LambdaConfig, OscarPlugin
+from plugins.base_plugin import LambdaConfig, OscarPlugin, SecretConfig
 from plugins.metrics.build.action_groups import get_action_groups
 from plugins.metrics.build.instructions import AGENT_INSTRUCTION, COLLABORATOR_INSTRUCTION
 from plugins.metrics.iam_policies import get_policies
@@ -41,6 +41,15 @@ class MetricsBuildPlugin(OscarPlugin):
 
     def get_access_level(self):
         return "both"
+
+    def get_secrets(self):
+        return [
+            SecretConfig(
+                name_suffix="env",
+                description="Metrics-specific environment variables (OpenSearch config, indices, etc.)",
+                env_var="METRICS_SECRET_NAME",
+            ),
+        ]
 
     def get_managed_policies(self):
         return [

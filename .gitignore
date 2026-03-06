@@ -1,6 +1,7 @@
 # Environment, secrets, and docs
 .env
 aws_id.txt
+.env.metrics
 .kiro/
 .claude/
 cdk.context.json
