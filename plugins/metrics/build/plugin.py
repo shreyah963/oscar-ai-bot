@@ -3,10 +3,27 @@
 
 """Build metrics plugin for OSCAR."""
 
+import os
+
 from plugins.base_plugin import LambdaConfig, OscarPlugin, SecretConfig
 from plugins.metrics.build.action_groups import get_action_groups
 from plugins.metrics.build.instructions import AGENT_INSTRUCTION, COLLABORATOR_INSTRUCTION
 from plugins.metrics.iam_policies import get_policies
+
+# Keys to pass through from .env.metrics to Lambda (if set).
+# config.py has its own defaults for each.
+_METRICS_ENV_KEYS = [
+    "OPENSEARCH_HOST", "OPENSEARCH_REGION", "OPENSEARCH_SERVICE",
+    "OPENSEARCH_INTEGRATION_TEST_INDEX", "OPENSEARCH_BUILD_RESULTS_INDEX",
+    "OPENSEARCH_RELEASE_METRICS_INDEX",
+    "OPENSEARCH_LARGE_QUERY_SIZE", "OPENSEARCH_REQUEST_TIMEOUT",
+    "BEDROCK_RESPONSE_MESSAGE_VERSION",
+]
+
+
+def _passthrough_env(keys):
+    """Pass through env vars to Lambda — only if set."""
+    return {k: os.environ[k] for k in keys if k in os.environ}
 
 
 class MetricsBuildPlugin(OscarPlugin):
@@ -22,6 +39,7 @@ class MetricsBuildPlugin(OscarPlugin):
             memory_size=1024,
             reserved_concurrency=100,
             needs_vpc=True,
+            environment_variables=_passthrough_env(_METRICS_ENV_KEYS),
         )
 
     def get_iam_policies(self, account_id, region, env):
