@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class MetricsConfig:
-    """Centralized configuration management for Metrics Lambda Functions."""
+    """Centralized configuration management for Metrics Lambda Functions.
+
+    This class handles all configuration aspects including environment variables,
+    validation, and default values for the metrics processing system.
+    """
 
     def __init__(self, validate_required: bool = True) -> None:
         """Initialize configuration with environment variables.
@@ -47,16 +51,10 @@ class MetricsConfig:
 
         # OpenSearch configuration (set by CDK)
         self.opensearch_host = os.environ.get('OPENSEARCH_HOST', '')
-        self.opensearch_vpc_endpoint_url = os.environ.get('OPENSEARCH_VPC_ENDPOINT_URL', '')
-        self.opensearch_domain_arn = os.environ.get('OPENSEARCH_DOMAIN_ARN', '')
-        self.opensearch_domain_account = os.environ.get('OPENSEARCH_DOMAIN_ACCOUNT')
         self.opensearch_region = os.environ.get('OPENSEARCH_REGION', 'us-east-1')
         self.opensearch_service = os.environ.get('OPENSEARCH_SERVICE', 'es')
 
         # Query configuration (set by CDK)
-        self.request_timeout = int(os.environ.get('REQUEST_TIMEOUT', 30))
-        self.max_results = int(os.environ.get('MAX_RESULTS', 1000))
-        self.default_query_size = int(os.environ.get('OPENSEARCH_DEFAULT_QUERY_SIZE', 500))
         self.large_query_size = int(os.environ.get('OPENSEARCH_LARGE_QUERY_SIZE', 1000))
         self.opensearch_request_timeout = int(os.environ.get('OPENSEARCH_REQUEST_TIMEOUT', 60))
 
@@ -74,18 +72,16 @@ class MetricsConfig:
             'opensearch_release_metrics'
         )
 
-        # Logging
-        self.log_level = os.environ.get('LOG_LEVEL', 'INFO')
-        self.mock_mode = os.environ.get('MOCK_MODE', 'false').lower() == 'true'
-
         # Response configuration
         self.bedrock_message_version = os.environ.get('BEDROCK_RESPONSE_MESSAGE_VERSION', '1.0')
 
         # Validation
-        if validate_required and not self.opensearch_host:
-            raise ValueError("OPENSEARCH_HOST is required")
+        if validate_required:
+            if not self.opensearch_host:
+                logger.error("OPENSEARCH_HOST environment variable is required")
+                raise ValueError("OPENSEARCH_HOST environment variable is required")
 
-        logger.info(f"Initialized MetricsConfig - Region: {self.region}, Mock Mode: {self.mock_mode}")
+        logger.info(f"Initialized MetricsConfig - Region: {self.region}")
 
     def _load_from_metrics_secret(self) -> Dict[str, str]:
         """Load sensitive config from the metrics secret (JSON format).
@@ -121,15 +117,27 @@ class MetricsConfig:
         return result
 
     def get_opensearch_host_clean(self) -> str:
-        """Get OpenSearch host with https:// prefix removed."""
+        """Get OpenSearch host with https:// prefix removed.
+
+        Returns:
+            Clean OpenSearch host without protocol prefix
+        """
         return self.opensearch_host.replace('https://', '')
 
     def get_integration_test_index_pattern(self) -> str:
-        """Get integration test index pattern for queries."""
+        """Get integration test index pattern for queries.
+
+        Returns:
+            Index pattern for integration test queries
+        """
         return f"{self.integration_test_index}-*"
 
     def get_build_results_index_pattern(self) -> str:
-        """Get build results index pattern for queries."""
+        """Get build results index pattern for queries.
+
+        Returns:
+            Index pattern for build results queries
+        """
         return f"{self.build_results_index}-*"
 
 
@@ -145,6 +153,7 @@ class _ConfigProxy:
         self.aws_request_id = request_id
 
     def __getattr__(self, name):
+        # If no config cached yet or request ID changed, create fresh config
         if self._cached_config is None or (self.aws_request_id and self._lambda_request_id != self.aws_request_id):
             self._cached_config = MetricsConfig(validate_required=False)
             self._lambda_request_id = self.aws_request_id
