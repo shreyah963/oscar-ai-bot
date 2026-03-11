@@ -42,15 +42,17 @@ class MetricsConfig:
         # Load sensitive config from metrics secret
         secrets = self._load_from_metrics_secret()
         self.metrics_cross_account_role_arn = secrets.get('METRICS_CROSS_ACCOUNT_ROLE_ARN', '')
+        self.opensearch_host = secrets.get('OPENSEARCH_HOST', '')
 
         if validate_required and not self.metrics_cross_account_role_arn:
             raise ValueError("METRICS_CROSS_ACCOUNT_ROLE_ARN not found in metrics secret")
+        if validate_required and not self.opensearch_host:
+            raise ValueError("OPENSEARCH_HOST not found in metrics secret")
 
         # AWS region
         self.region = os.environ.get('AWS_REGION', 'us-east-1')
 
         # OpenSearch configuration (set by CDK)
-        self.opensearch_host = os.environ.get('OPENSEARCH_HOST', '')
         self.opensearch_region = os.environ.get('OPENSEARCH_REGION', 'us-east-1')
         self.opensearch_service = os.environ.get('OPENSEARCH_SERVICE', 'es')
 
@@ -75,12 +77,6 @@ class MetricsConfig:
         # Response configuration
         self.bedrock_message_version = os.environ.get('BEDROCK_RESPONSE_MESSAGE_VERSION', '1.0')
 
-        # Validation
-        if validate_required:
-            if not self.opensearch_host:
-                logger.error("OPENSEARCH_HOST environment variable is required")
-                raise ValueError("OPENSEARCH_HOST environment variable is required")
-
         logger.info(f"Initialized MetricsConfig - Region: {self.region}")
 
     def _load_from_metrics_secret(self) -> Dict[str, str]:
@@ -90,6 +86,7 @@ class MetricsConfig:
         """
         keys_to_extract = {
             'METRICS_CROSS_ACCOUNT_ROLE_ARN',
+            'OPENSEARCH_HOST',
         }
         result: Dict[str, str] = {}
 

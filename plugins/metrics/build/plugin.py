@@ -10,10 +10,10 @@ from plugins.metrics.build.action_groups import get_action_groups
 from plugins.metrics.build.instructions import AGENT_INSTRUCTION, COLLABORATOR_INSTRUCTION
 from plugins.metrics.iam_policies import get_policies
 
-# Keys to pass through from .env.metrics to Lambda (if set).
+# Keys to pass through from .env to Lambda (if set).
 # config.py has its own defaults for each.
 _METRICS_ENV_KEYS = [
-    "OPENSEARCH_HOST", "OPENSEARCH_REGION", "OPENSEARCH_SERVICE",
+    "OPENSEARCH_REGION", "OPENSEARCH_SERVICE",
     "OPENSEARCH_INTEGRATION_TEST_INDEX", "OPENSEARCH_BUILD_RESULTS_INDEX",
     "OPENSEARCH_RELEASE_METRICS_INDEX",
     "OPENSEARCH_LARGE_QUERY_SIZE", "OPENSEARCH_REQUEST_TIMEOUT",
@@ -64,7 +64,7 @@ class MetricsBuildPlugin(OscarPlugin):
         return [
             SecretConfig(
                 name_suffix="env",
-                description="Metrics-specific environment variables (OpenSearch config, indices, etc.)",
+                description="Metrics plugin secrets (cross-account role ARN, OpenSearch host, etc.)",
                 env_var="METRICS_SECRET_NAME",
             ),
         ]

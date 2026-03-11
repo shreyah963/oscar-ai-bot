@@ -30,7 +30,6 @@ from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
 
 load_dotenv()
-load_dotenv(".env.metrics")
 
 
 # Configure logging
