@@ -9,19 +9,16 @@
 """
 Configuration Management for Metrics Lambda Functions.
 
-This module provides centralized configuration management for the metrics
-Lambda functions, handling environment variables, validation, and default values.
-
-Classes:
-    MetricsConfig: Main configuration class with validation and environment variable handling
+Credentials and sensitive config are selectively read from the metrics secret.
+All other config comes from CDK Lambda environment variables.
 """
 
+import json
 import logging
 import os
-from io import StringIO
+from typing import Dict
 
 import boto3
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -42,31 +39,28 @@ class MetricsConfig:
         Raises:
             ValueError: If required environment variables are missing
         """
-        self._load_env_from_secrets()
+        # Load sensitive config from metrics secret
+        secrets = self._load_from_metrics_secret()
+        self.metrics_cross_account_role_arn = secrets.get('METRICS_CROSS_ACCOUNT_ROLE_ARN', '')
+        self.opensearch_host = secrets.get('OPENSEARCH_HOST', '')
+
+        if validate_required and not self.metrics_cross_account_role_arn:
+            raise ValueError("METRICS_CROSS_ACCOUNT_ROLE_ARN not found in metrics secret")
+        if validate_required and not self.opensearch_host:
+            raise ValueError("OPENSEARCH_HOST not found in metrics secret")
+
         # AWS region
         self.region = os.environ.get('AWS_REGION', 'us-east-1')
 
-        # OpenSearch configuration
-        self.opensearch_host = os.environ.get('OPENSEARCH_HOST', '')
-        self.opensearch_vpc_endpoint_url = os.environ.get('OPENSEARCH_VPC_ENDPOINT_URL', '')
-        self.opensearch_domain_arn = os.environ.get('OPENSEARCH_DOMAIN_ARN', '')
-        self.opensearch_domain_account = os.environ.get('OPENSEARCH_DOMAIN_ACCOUNT')
+        # OpenSearch configuration (set by CDK)
         self.opensearch_region = os.environ.get('OPENSEARCH_REGION', 'us-east-1')
         self.opensearch_service = os.environ.get('OPENSEARCH_SERVICE', 'es')
 
-        # Cross-account role configuration
-        self.metrics_cross_account_role_arn = os.environ.get(
-            'METRICS_CROSS_ACCOUNT_ROLE_ARN'
-        )
-
-        # Query configuration
-        self.request_timeout = int(os.environ.get('REQUEST_TIMEOUT', 30))
-        self.max_results = int(os.environ.get('MAX_RESULTS', 1000))
-        self.default_query_size = int(os.environ.get('OPENSEARCH_DEFAULT_QUERY_SIZE', 500))
+        # Query configuration (set by CDK)
         self.large_query_size = int(os.environ.get('OPENSEARCH_LARGE_QUERY_SIZE', 1000))
         self.opensearch_request_timeout = int(os.environ.get('OPENSEARCH_REQUEST_TIMEOUT', 60))
 
-        # Index names
+        # Index names (set by CDK)
         self.integration_test_index = os.environ.get(
             'OPENSEARCH_INTEGRATION_TEST_INDEX',
             'opensearch-integration-test-results-*'
@@ -80,44 +74,44 @@ class MetricsConfig:
             'opensearch_release_metrics'
         )
 
-        # Logging configuration
-        self.log_level = os.environ.get('LOG_LEVEL', 'INFO')
-        self.mock_mode = os.environ.get('MOCK_MODE', 'false').lower() == 'true'
-
         # Response configuration
         self.bedrock_message_version = os.environ.get('BEDROCK_RESPONSE_MESSAGE_VERSION', '1.0')
 
-        # Validation
-        if validate_required:
-            if not self.opensearch_host:
-                logger.error("OPENSEARCH_HOST environment variable is required")
-                raise ValueError("OPENSEARCH_HOST environment variable is required")
+        logger.info(f"Initialized MetricsConfig - Region: {self.region}")
 
-        logger.info(f"Initialized MetricsConfig - Region: {self.region}, Mock Mode: {self.mock_mode}")
+    def _load_from_metrics_secret(self) -> Dict[str, str]:
+        """Load sensitive config from the metrics secret (JSON format).
 
-    def _load_env_from_secrets(self) -> None:
-        """Load environment variables from AWS Secrets Manager."""
+        Returns only the keys we need. Does NOT inject anything into os.environ.
+        """
+        keys_to_extract = {
+            'METRICS_CROSS_ACCOUNT_ROLE_ARN',
+            'OPENSEARCH_HOST',
+        }
+        result: Dict[str, str] = {}
+
+        secret_name = os.environ.get('METRICS_SECRET_NAME')
+        if not secret_name:
+            logger.error("METRICS_SECRET_NAME environment variable is not set")
+            return result
+
         try:
-            session = boto3.session.Session()
-            client = session.client(
-                service_name='secretsmanager',
+            client = boto3.client(
+                'secretsmanager',
                 region_name=os.getenv('AWS_REGION', 'us-east-1')
             )
+            response = client.get_secret_value(SecretId=secret_name)
+            secret_data = json.loads(response['SecretString'])
 
-            # Get the .env content from secrets manager
-            response = client.get_secret_value(SecretId='oscar-central-env-dev-cdk')
-            env_content = response['SecretString']
+            for key in keys_to_extract:
+                if key in secret_data:
+                    result[key] = str(secret_data[key])
 
-            # Load the .env content into environment variables
-            config_stream = StringIO(env_content)
-            load_dotenv(stream=config_stream, override=True)
-
-            logger.info("Successfully loaded environment variables from AWS Secrets Manager")
-
+            logger.info(f"Loaded {len(result)} keys from metrics secret")
         except Exception as e:
-            logger.error(f"Error loading environment from secrets manager: {e}")
-            logger.warning("Falling back to local environment variables")
-            # Continue with local environment variables if secrets manager fails
+            logger.error(f"Failed to load metrics secret '{secret_name}': {e}")
+
+        return result
 
     def get_opensearch_host_clean(self) -> str:
         """Get OpenSearch host with https:// prefix removed.
