@@ -91,23 +91,34 @@ class OscarPermissionsStack(Stack):
         return roles
 
     def _create_plugin_roles(self, plugins) -> Dict[str, iam.Role]:
-        """Create one IAM role per plugin from plugin-defined policies."""
+        """Create IAM roles for plugins, deduplicating by Lambda entry path.
+
+        Plugins sharing the same Lambda entry directory share a single role.
+        """
         roles = {}
+        created_entries: Dict[str, iam.Role] = {}
+
         for plugin in plugins:
-            construct_id = f"{plugin.name.replace('-', ' ').title().replace(' ', '')}LambdaRole"
+            entry = plugin.get_lambda_config().entry
+            if entry in created_entries:
+                roles[plugin.name] = created_entries[entry]
+                continue
+
+            role_prefix = entry.split("/")[1].title()  # e.g. "plugins/metrics/lambda" → "Metrics"
             managed = [
                 iam.ManagedPolicy.from_aws_managed_policy_name(p)
                 for p in plugin.get_managed_policies()
             ]
             role = iam.Role(
-                self, construct_id,
+                self, f"{role_prefix}LambdaRole",
                 assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
                 managed_policies=managed,
-                description=f"Execution role for OSCAR {plugin.name} Lambda"
+                description=f"Execution role for OSCAR {role_prefix.lower()} Lambda"
             )
             for stmt in plugin.get_iam_policies(self.account_id, self.aws_region, self.env_name):
                 role.add_to_policy(stmt)
             roles[plugin.name] = role
+            created_entries[entry] = role
         return roles
 
     def _create_api_gateway_role(self) -> iam.Role:

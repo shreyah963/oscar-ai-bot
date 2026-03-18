@@ -3,12 +3,13 @@
 
 """Shared IAM policies for all metrics plugins."""
 
-from typing import List, Optional
+import os
+from typing import List
 
 from aws_cdk import aws_iam as iam
 
 
-def get_policies(account_id: str, region: str, env: str, metrics_account_role: Optional[str] = None) -> List[iam.PolicyStatement]:
+def get_policies(account_id: str, region: str, env: str) -> List[iam.PolicyStatement]:
     policies = [
         iam.PolicyStatement(
             sid="VPCEndpointAccess",
@@ -17,6 +18,7 @@ def get_policies(account_id: str, region: str, env: str, metrics_account_role: O
             resources=[f"arn:aws:s3:::oscar-metrics-cache-{account_id}/*"],
         ),
     ]
+    metrics_account_role = os.environ.get("METRICS_CROSS_ACCOUNT_ROLE_ARN")
     if metrics_account_role:
         policies.append(
             iam.PolicyStatement(

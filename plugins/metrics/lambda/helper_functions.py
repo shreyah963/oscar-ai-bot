@@ -44,7 +44,7 @@ def resolve_components_from_build_numbers(version: str, build_numbers: List[str]
         }
     }
 
-    result = opensearch_request('POST', f'/{config.get_build_results_index_pattern()}/_search', query_body)
+    result = opensearch_request('GET', f'/{config.get_build_results_index_pattern()}/_search', query_body)
 
     build_component_map = {}
     for hit in result.get('hits', {}).get('hits', []):
@@ -93,7 +93,7 @@ def get_rc_distribution_build_number(version: str, rc_number: int, component_nam
         )
 
     # Query all monthly indices to get complete dataset
-    result = opensearch_request('POST', f'/{config.get_integration_test_index_pattern()}/_search', query_body)
+    result = opensearch_request('GET', f'/{config.get_integration_test_index_pattern()}/_search', query_body)
     hits = result.get('hits', {}).get('hits', [])
 
     if not hits:

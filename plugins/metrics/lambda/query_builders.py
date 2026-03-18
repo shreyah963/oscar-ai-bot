@@ -155,7 +155,7 @@ def query_integration_test_results(
 
     # Execute the main query
     logger.info("INTEGRATION_QUERY: About to execute OpenSearch request")
-    result = opensearch_request('POST', f'/{config.get_integration_test_index_pattern()}/_search', query_body)
+    result = opensearch_request('GET', f'/{config.get_integration_test_index_pattern()}/_search', query_body)
     logger.info("INTEGRATION_QUERY: OpenSearch request completed")
 
     if result and 'hits' in result:
@@ -232,7 +232,7 @@ def query_distribution_build_results(
     # NOTE: status_filter is NOT applied at OpenSearch level to ensure proper deduplication
     # It will be applied after deduplication in the main handler
 
-    return opensearch_request('POST', f'/{config.get_build_results_index_pattern()}/_search', query_body)
+    return opensearch_request('GET', f'/{config.get_build_results_index_pattern()}/_search', query_body)
 
 
 def query_release_readiness(version: str, components: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -276,4 +276,4 @@ def query_release_readiness(version: str, components: Optional[List[str]] = None
                 }
             })
 
-    return opensearch_request('POST', f'/{config.release_metrics_index}/_search', query_body)
+    return opensearch_request('GET', f'/{config.release_metrics_index}/_search', query_body)

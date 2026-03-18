@@ -40,13 +40,15 @@ class MetricsConfig:
         Raises:
             ValueError: If required environment variables are missing
         """
-        # Load sensitive config from metrics secret
+        # Cross-account role ARN from Lambda env var (set by CDK from .env)
+        self.metrics_cross_account_role_arn = os.environ.get('METRICS_CROSS_ACCOUNT_ROLE_ARN', '')
+
+        # Load remaining sensitive config from metrics secret
         secrets = self._load_from_metrics_secret()
-        self.metrics_cross_account_role_arn = secrets.get('METRICS_CROSS_ACCOUNT_ROLE_ARN', '')
         self.opensearch_host = secrets.get('OPENSEARCH_HOST', '')
 
         if validate_required and not self.metrics_cross_account_role_arn:
-            raise ValueError("METRICS_CROSS_ACCOUNT_ROLE_ARN not found in metrics secret")
+            raise ValueError("METRICS_CROSS_ACCOUNT_ROLE_ARN environment variable is not set")
         if validate_required and not self.opensearch_host:
             raise ValueError("OPENSEARCH_HOST not found in metrics secret")
 
@@ -86,7 +88,6 @@ class MetricsConfig:
         Returns only the keys we need. Does NOT inject anything into os.environ.
         """
         keys_to_extract = {
-            'METRICS_CROSS_ACCOUNT_ROLE_ARN',
             'OPENSEARCH_HOST',
         }
         result: Dict[str, str] = {}

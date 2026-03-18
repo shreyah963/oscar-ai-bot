@@ -13,6 +13,7 @@ from plugins.metrics.iam_policies import get_policies
 # Keys to pass through from .env to Lambda (if set).
 # config.py has its own defaults for each.
 _METRICS_ENV_KEYS = [
+    "METRICS_CROSS_ACCOUNT_ROLE_ARN",
     "OPENSEARCH_REGION", "OPENSEARCH_SERVICE",
     "OPENSEARCH_INTEGRATION_TEST_INDEX", "OPENSEARCH_BUILD_RESULTS_INDEX",
     "OPENSEARCH_RELEASE_METRICS_INDEX",
