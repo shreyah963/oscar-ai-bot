@@ -68,18 +68,13 @@ class TestOscarPermissionsStack:
         })
 
     def test_plugin_roles_creation(self, template):
-        """Test that plugin Lambda roles are created."""
+        """Test that plugin Lambda roles are created (deduplicated by entry path)."""
         template.has_resource_properties("AWS::IAM::Role", {
             "Description": "Execution role for OSCAR jenkins Lambda",
         })
+        # All metrics plugins share the same Lambda entry, so they share one role
         template.has_resource_properties("AWS::IAM::Role", {
-            "Description": "Execution role for OSCAR metrics-build Lambda",
-        })
-        template.has_resource_properties("AWS::IAM::Role", {
-            "Description": "Execution role for OSCAR metrics-test Lambda",
-        })
-        template.has_resource_properties("AWS::IAM::Role", {
-            "Description": "Execution role for OSCAR metrics-release Lambda",
+            "Description": "Execution role for OSCAR metrics Lambda",
         })
 
     def test_api_gateway_role_creation(self, template):
