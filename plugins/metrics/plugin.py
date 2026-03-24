@@ -1,14 +1,15 @@
 # Copyright OpenSearch Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Build metrics plugin for OSCAR."""
+"""Metrics plugin for OSCAR."""
 
 import os
 
 from plugins.base_plugin import LambdaConfig, OscarPlugin, SecretConfig
-from plugins.metrics.build.action_groups import get_action_groups
-from plugins.metrics.build.instructions import AGENT_INSTRUCTION, COLLABORATOR_INSTRUCTION
 from plugins.metrics.iam_policies import get_policies
+from plugins.metrics.action_groups import get_action_groups
+from plugins.metrics.instructions import (AGENT_INSTRUCTION,
+                                          COLLABORATOR_INSTRUCTION)
 
 # Keys to pass through from .env to Lambda (if set).
 # config.py has its own defaults for each.
@@ -21,13 +22,18 @@ _METRICS_ENV_KEYS = [
     "BEDROCK_RESPONSE_MESSAGE_VERSION",
 ]
 
+# Agentic pipeline configuration keys.
+_AGENTIC_ENV_KEYS = [
+    "AGENTIC_PIPELINE",
+]
+
 
 def _passthrough_env(keys):
     """Pass through env vars to Lambda — only if set."""
     return {k: os.environ[k] for k in keys if k in os.environ}
 
 
-class MetricsBuildPlugin(OscarPlugin):
+class MetricsPlugin(OscarPlugin):
 
     @property
     def name(self):
@@ -40,7 +46,9 @@ class MetricsBuildPlugin(OscarPlugin):
             memory_size=1024,
             reserved_concurrency=100,
             needs_vpc=True,
-            environment_variables=_passthrough_env(_METRICS_ENV_KEYS),
+            environment_variables=_passthrough_env(
+                _METRICS_ENV_KEYS + _AGENTIC_ENV_KEYS
+            ),
         )
 
     def get_iam_policies(self, account_id, region, env):
@@ -56,7 +64,7 @@ class MetricsBuildPlugin(OscarPlugin):
         return COLLABORATOR_INSTRUCTION
 
     def get_collaborator_name(self):
-        return "Build-Metrics-Specialist"
+        return "Metrics-Specialist"
 
     def get_access_level(self):
         return "both"

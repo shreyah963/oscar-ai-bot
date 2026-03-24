@@ -9,220 +9,179 @@
 """
 Metrics Handler for Metrics Lambda Functions.
 
-This module provides the main metrics query handling logic,
-coordinating between different query types and data processors.
+This module provides the main metrics query handling logic using agentic search,
+coordinating between index routing, query enhancement, and data processors.
 
 Functions:
-    handle_metrics_query: Main metrics query handler
+    handle_metrics_query: Main metrics query handler using agentic search
 """
 
 import logging
 from typing import Any, Dict, Optional
 
-from data_processors import (deduplicate_integration_test_results,
-                             extract_build_results, extract_release_results,
-                             extract_test_results)
-from query_builders import (query_distribution_build_results,
-                            query_integration_test_results,
-                            query_release_readiness)
-from summary_generators import (generate_build_summary,
-                                generate_integration_summary,
-                                generate_release_summary)
+from agentic_search import (
+    route_index,
+    enhance_query,
+    agentic_search,
+    IndexRoutingError,
+    AgenticSearchError,
+)
+from data_processors import (
+    extract_build_results,
+    extract_release_results,
+    extract_test_results,
+)
+from summary_generators import (
+    generate_build_summary,
+    generate_integration_summary,
+    generate_release_summary,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def handle_metrics_query(agent_type: str, function_name: str, params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
-    """Simplified metrics query handler - execute query with parameters and return results.
+def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
+    """Metrics query handler using agentic search.
+
+    Receives a natural language query and version, routes to the appropriate index,
+    enhances the query with filters, executes agentic search, and processes results.
 
     Args:
-        agent_type: Type of agent (integration-test, build-metrics, release-metrics)
-        function_name: Name of the function being called
-        params: Parameters for the query
+        params: Parameters for the query containing:
+            - query: Natural language query (required)
+            - version: Version to scope the query (required)
+            - components: Optional list of components to filter
+            - status_filter: Optional status filter ('passed', 'failed')
+            - platform: Optional platform filter
+            - architecture: Optional architecture filter
+            - distribution: Optional distribution filter
         request_id: Optional request ID for logging
 
     Returns:
         Dictionary containing query results and metadata
     """
+    req_id = request_id or "unknown"
+
     try:
-        req_id = request_id or "unknown"
-        logger.info(f"METRICS_QUERY [{req_id}]: Starting metrics query handler")
-        logger.info(f"METRICS_QUERY [{req_id}]: agent_type={agent_type}, function_name={function_name}")
+        logger.info(f"METRICS_QUERY [{req_id}]: Starting agentic search handler")
         logger.info(f"METRICS_QUERY [{req_id}]: params keys: {list(params.keys()) if isinstance(params, dict) else 'Not a dict'}")
 
-        # Log all parameters for debugging
-        for key, value in params.items():
-            logger.info(f"METRICS_QUERY [{req_id}]: param {key} = {value}")
-
-        # Extract parameters directly from the event
+        # Extract required parameters
+        query = params.get('query')
         version = params.get('version')
-        rc_numbers = params.get('rc_numbers') or []
-        build_numbers = params.get('build_numbers') or []
-        integ_test_build_numbers = params.get('integ_test_build_numbers') or []
-        components = params.get('components') or []
-        status_filter = params.get('status_filter')  # 'passed', 'failed', or None
-        distribution = params.get('distribution')  # Don't default to 'tar' - let all distributions through
-        architecture = params.get('architecture')
-        platform = params.get('platform')  # Don't default - let all platforms through
-        with_security = params.get('with_security')  # 'pass', 'fail', or None
-        without_security = params.get('without_security')  # 'pass', 'fail', or None
 
         # Validate required parameters
+        if not query:
+            return {'error': 'Query is required for metrics queries'}
         if not version:
             return {'error': 'Version is required for metrics queries'}
 
-        # Function-specific validation
-        if function_name == 'get_integration_test_metrics' and not rc_numbers:
-            logger.warning(f"METRICS_QUERY [{req_id}]: get_integration_test_metrics called without rc_numbers")
-        elif function_name == 'get_build_metrics' and not (build_numbers or rc_numbers):
-            logger.warning(f"METRICS_QUERY [{req_id}]: get_build_metrics called without build_numbers or rc_numbers")
-        elif function_name == 'get_release_metrics' and not components:
-            logger.warning(f"METRICS_QUERY [{req_id}]: get_release_metrics called without components")
+        logger.info(f"METRICS_QUERY [{req_id}]: query='{query}', version={version}")
 
-        # Normalize array parameters - these should already be handled in the main parameter processing
-        # but keep this as a safety net for any edge cases
-        if isinstance(rc_numbers, str):
-            rc_numbers = [item.strip() for item in rc_numbers.split(',') if item.strip()]
-        if isinstance(build_numbers, str):
-            build_numbers = [item.strip() for item in build_numbers.split(',') if item.strip()]
-        if isinstance(integ_test_build_numbers, str):
-            integ_test_build_numbers = [item.strip() for item in integ_test_build_numbers.split(',') if item.strip()]
+        # Extract optional filter parameters
+        components = params.get('components') or []
+        status_filter = params.get('status_filter')
+        platform = params.get('platform')
+        architecture = params.get('architecture')
+        distribution = params.get('distribution')
+
+        # Normalize components if string
         if isinstance(components, str):
             components = [item.strip() for item in components.split(',') if item.strip()]
 
-        # Ensure arrays are not None
-        rc_numbers = rc_numbers or []
-        build_numbers = build_numbers or []
-        integ_test_build_numbers = integ_test_build_numbers or []
-        components = components or []
-
-        logger.info(f"METRICS_QUERY [{req_id}]: Executing {agent_type} query for version {version}")
-        logger.info(f"METRICS_QUERY [{req_id}]: Parameters - rc_numbers={rc_numbers}, build_numbers={build_numbers}, components={components}")
-        logger.info(f"METRICS_QUERY [{req_id}]: About to execute query based on agent type")
-
-        # Execute single query based on agent type
-        if agent_type in ['integration-test', 'test-metrics', 'test']:
-            logger.info(f"METRICS_QUERY [{req_id}]: Processing integration test query")
-            rc_number_to_use = rc_numbers[0] if rc_numbers else None
-            logger.info(f"METRICS_QUERY [{req_id}]: Using RC number: {rc_number_to_use} (from rc_numbers: {rc_numbers})")
-
-            logger.info(f"METRICS_QUERY [{req_id}]: About to call query_integration_test_results")
-            logger.info(f"METRICS_QUERY [{req_id}]: Query parameters - version={version}, rc_number={rc_number_to_use}, build_numbers={build_numbers}, components={components}")
-            logger.info(f"METRICS_QUERY [{req_id}]: Filters - status_filter={status_filter}, distribution={distribution}, architecture={architecture}, platform={platform}")
-            logger.info(f"METRICS_QUERY [{req_id}]: Security filters - with_security={with_security}, without_security={without_security}")
-
-            opensearch_results = query_integration_test_results(
-                version=version,
-                rc_number=rc_number_to_use,
-                build_numbers=build_numbers if build_numbers else None,
-                components=components if components else None,
-                status_filter=status_filter,
-                distribution=distribution,
-                architecture=architecture,
-                platform=platform,
-                with_security=with_security,
-                without_security=without_security,
-                integ_test_build_numbers=integ_test_build_numbers if integ_test_build_numbers else None
-            )
-            logger.info(f"METRICS_QUERY [{req_id}]: query_integration_test_results completed")
-            data_source = 'opensearch-integration-test-results'
-
-        elif agent_type in ['build-metrics', 'build']:
-            opensearch_results = query_distribution_build_results(
-                version=version,
-                build_numbers=build_numbers if build_numbers else None,
-                components=components if components else None,
-                status_filter=status_filter
-            )
-            data_source = 'opensearch-distribution-build-results'
-
-        elif agent_type in ['release-metrics', 'release']:
-            opensearch_results = query_release_readiness(
-                version=version,
-                components=components if components else None
-            )
-            data_source = 'opensearch_release_metrics'
-
-        else:
-            return {'error': f'Unknown agent type: {agent_type}'}
-
-        # Extract and process results based on agent type
-        logger.info(f"METRICS_QUERY [{req_id}]: About to extract results for agent type: {agent_type}")
-        logger.info(f"METRICS_QUERY [{req_id}]: Function name: {function_name}")
-        logger.info(f"METRICS_QUERY [{req_id}]: Data source will be: {data_source}")
-
-        if agent_type in ['integration-test', 'test-metrics', 'test']:
-            logger.info(f"METRICS_QUERY [{req_id}]: Calling extract_test_results for integration test data")
-            results = extract_test_results(opensearch_results)
-            logger.info(f"METRICS_QUERY [{req_id}]: extract_test_results completed, got {len(results)} results")
-        elif agent_type in ['build-metrics', 'build']:
-            results = extract_build_results(opensearch_results)
-        elif agent_type in ['release-metrics', 'release']:
-            results = extract_release_results(opensearch_results)
-        else:
-            # Fallback to raw extraction - but check if this is integration test data
-            hits = opensearch_results.get('hits', {}).get('hits', [])
-            raw_results = [hit.get('_source', {}) for hit in hits]
-
-            # If this looks like integration test data, apply deduplication
-            if raw_results and any('with_security' in r and 'without_security' in r for r in raw_results):
-                logger.info(f"METRICS_QUERY [{req_id}]: Fallback case detected integration test data, applying deduplication")
-                results = deduplicate_integration_test_results(raw_results)
-            else:
-                logger.info(f"METRICS_QUERY [{req_id}]: Fallback case - raw results don't look like integration test data")
-                results = raw_results
-
-        # Apply filtering AFTER deduplication to ensure we get the most recent results first
-        # This is critical - if we filter before deduplication, we might miss more recent results
-        # that have different statuses than what we're filtering for
+        # Build filters dict for query enhancement
+        filters = {}
+        if components:
+            filters['components'] = components
         if status_filter:
-            if agent_type in ['integration-test', 'test-metrics', 'test']:
-                results = [r for r in results if r.get('component_build_result') == status_filter]
-            elif agent_type in ['build-metrics', 'build']:
-                results = [r for r in results if r.get('component_build_result') == status_filter]
+            filters['status'] = status_filter
+        if platform:
+            filters['platform'] = platform
+        if architecture:
+            filters['architecture'] = architecture
+        if distribution:
+            filters['distribution'] = distribution
 
-        if with_security:
-            results = [r for r in results if r.get('with_security') == with_security]
-        if without_security:
-            results = [r for r in results if r.get('without_security') == without_security]
+        logger.info(f"METRICS_QUERY [{req_id}]: filters={filters}")
 
-        logger.info(f"METRICS_QUERY [{req_id}]: Query returned {len(results)} results after filtering")
-        logger.info(f"METRICS_QUERY [{req_id}]: About to create final response")
+        # Step 1: Route to appropriate index and pipeline
+        try:
+            index_pattern, pipeline_name, agent_type = route_index(query)
+            logger.info(f"METRICS_QUERY [{req_id}]: Routed to index={index_pattern}, pipeline={pipeline_name}, agent_type={agent_type}")
+        except IndexRoutingError as e:
+            logger.warning(f"METRICS_QUERY [{req_id}]: Index routing failed: {e}")
+            return {'error': str(e), 'type': 'routing_error'}
 
-        # Generate appropriate summary based on agent type
-        if agent_type in ['integration-test', 'test-metrics', 'test']:
+        logger.info(f"METRICS_QUERY [{req_id}]: agent_type={agent_type}")
+
+        # Step 2: Enhance query with version and filters
+        enhanced_query = enhance_query(query, version, filters if filters else None)
+        logger.info(f"METRICS_QUERY [{req_id}]: Enhanced query='{enhanced_query}'")
+
+        # Step 3: Execute agentic search
+        try:
+            opensearch_results = agentic_search(index_pattern, pipeline_name, enhanced_query)
+            logger.info(f"METRICS_QUERY [{req_id}]: Agentic search completed")
+        except AgenticSearchError as e:
+            logger.error(f"METRICS_QUERY [{req_id}]: Agentic search failed: {e}")
+            return {
+                'error': str(e),
+                'status_code': e.status_code,
+                'type': 'agentic_search_error'
+            }
+
+        # Step 4: Validate response structure
+        if 'hits' not in opensearch_results or 'hits' not in opensearch_results.get('hits', {}):
+            logger.error(f"METRICS_QUERY [{req_id}]: Unexpected response structure - missing hits")
+            return {'error': 'Unexpected response structure', 'type': 'response_parse_error'}
+
+        # Step 5: Extract generated DSL for debugging (if present)
+        generated_dsl = opensearch_results.get('ext', {}).get('dsl_query')
+        if generated_dsl:
+            logger.info(f"METRICS_QUERY [{req_id}]: Generated DSL: {generated_dsl}")
+
+        # Step 6: Extract and process results based on agent type
+        logger.info(f"METRICS_QUERY [{req_id}]: Extracting results for agent_type={agent_type}")
+
+        if agent_type == 'integration-test':
+            results = extract_test_results(opensearch_results)
             summary = generate_integration_summary(results)
-        elif agent_type in ['build-metrics', 'build']:
+            data_source = 'opensearch-integration-test-results'
+        elif agent_type == 'build-metrics':
+            results = extract_build_results(opensearch_results)
             summary = generate_build_summary(results)
-        elif agent_type in ['release-metrics', 'release']:
+            data_source = 'opensearch-distribution-build-results'
+        elif agent_type == 'release-metrics':
+            results = extract_release_results(opensearch_results)
             summary = generate_release_summary(results)
+            data_source = 'opensearch_release_metrics'
         else:
-            # Fallback on emptysummary
+            # Fallback to raw extraction
+            hits = opensearch_results.get('hits', {}).get('hits', [])
+            results = [hit.get('_source', {}) for hit in hits]
             summary = {}
+            data_source = index_pattern
 
-        # Return results directly - let the LLM interpret them
-        return {
+        logger.info(f"METRICS_QUERY [{req_id}]: Extracted {len(results)} results")
+
+        # Build response
+        response = {
             'agent_type': agent_type,
             'version': version,
-            'query_parameters': {
-                'rc_numbers': rc_numbers,
-                'build_numbers': build_numbers,
-                'integ_test_build_numbers': integ_test_build_numbers,
-                'components': components,
-                'status_filter': status_filter,
-                'distribution': distribution,
-                'architecture': architecture,
-                'platform': platform,
-                'with_security': with_security,
-                'without_security': without_security
-            },
             'data_source': data_source,
             'total_results': len(results),
             'results': results,
-            'summary': summary
+            'summary': summary,
         }
 
+        # Include generated DSL when available
+        if generated_dsl:
+            response['generated_dsl'] = generated_dsl
+
+        logger.info(f"METRICS_QUERY [{req_id}]: Returning response with {len(results)} results")
+        return response
+
     except Exception as e:
-        logger.error(f"Metrics query failed: {e}")
+        logger.error(f"METRICS_QUERY [{req_id}]: Unexpected error: {e}")
         return {'error': str(e), 'type': 'metrics_error'}

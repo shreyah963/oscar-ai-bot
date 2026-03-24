@@ -9,16 +9,14 @@ from aws_cdk import App, Environment
 from aws_cdk.assertions import Match, Template
 
 from plugins.jenkins import JenkinsPlugin
-from plugins.metrics.build import MetricsBuildPlugin
-from plugins.metrics.release import MetricsReleasePlugin
-from plugins.metrics.test import MetricsTestPlugin
+from plugins.metrics import MetricsPlugin
 from stacks.lambda_stack import OscarLambdaStack
 from stacks.permissions_stack import OscarPermissionsStack
 from stacks.secrets_stack import OscarSecretsStack
 from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
 
-PLUGINS = [JenkinsPlugin(), MetricsBuildPlugin(), MetricsTestPlugin(), MetricsReleasePlugin()]
+PLUGINS = [JenkinsPlugin(), MetricsPlugin()]
 ENV = Environment(account="123456789012", region="us-east-1")
 
 
@@ -86,9 +84,9 @@ class TestLambdaStack:
         })
 
     def test_metrics_plugin_lambda_created(self, template):
-        """Metrics plugins should share a single Lambda (same entry path)."""
+        """Unified metrics plugin Lambda should exist."""
         template.has_resource_properties("AWS::Lambda::Function", {
-            "FunctionName": "oscar-metrics-build-dev",
+            "FunctionName": "oscar-metrics-dev",
             "Runtime": "python3.12",
         })
 

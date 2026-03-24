@@ -10,8 +10,7 @@
 Main Lambda Function for Metrics Processing.
 
 This module provides the main Lambda handler for metrics processing,
-coordinating between different modules to provide comprehensive
-metrics analysis for the OSCAR system.
+using agentic search for natural language query handling.
 
 Functions:
     lambda_handler: Main Lambda handler for metrics processing
@@ -36,22 +35,10 @@ logger.setLevel(logging.INFO)
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Main Lambda handler for metrics processing.
 
-    Function Mappings:
-
-    Integration Test Agent:
-    - get_integration_test_metrics: Get integration test results with proper deduplication
-    - get_rc_build_mapping: Map RC numbers to build numbers
-
-    Build Metrics Agent:
-    - get_build_metrics: Get build results and metrics
+    Routes requests to appropriate handlers:
+    - query_metrics: Unified metrics query using agentic search
     - resolve_components_from_builds: Map build numbers to components
-
-    Release Metrics Agent:
-    - get_release_metrics: Get release readiness metrics
-
-    Deprecated Functions (still supported but not recommended):
-    - get_test_metrics: Use get_integration_test_metrics instead
-    - get_metrics: Too generic, use specific functions instead
+    - get_rc_build_mapping: Map RC numbers to build numbers
 
     Args:
         event: Lambda event containing the action group request
@@ -68,16 +55,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     try:
         logger.info(f"LAMBDA_HANDLER [{request_id}]: Starting Lambda execution")
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Event keys: {list(event.keys())}")
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Context: {context}")
 
         function_name = event.get('function', '')
         parameters = event.get('parameters', [])
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Function name: '{function_name}' (type: {type(function_name)})")
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Parameters count: {len(parameters)}")
-
-        # Log the entire event for debugging
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Full event: {json.dumps(event, indent=2)}")
+        logger.info(f"LAMBDA_HANDLER [{request_id}]: Function: '{function_name}', Params count: {len(parameters)}")
 
         # Convert parameters to dict with proper array handling
         params = {}
@@ -86,93 +67,40 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 value = param['value']
                 param_name = param['name']
 
-                logger.info(f"LAMBDA_HANDLER [{request_id}]: Processing param '{param_name}' = {value} (type: {type(value)})")
-
-                # Handle different value types
+                # Handle array parameters that might be passed as JSON strings
                 if isinstance(value, str) and value.startswith('[') and value.endswith(']'):
-                    # Handle array parameters that might be passed as JSON strings
                     try:
                         value = json.loads(value)
-                        logger.info(f"LAMBDA_HANDLER [{request_id}]: Parsed JSON array for '{param_name}': {value}")
                     except json.JSONDecodeError:
-                        logger.warning(f"LAMBDA_HANDLER [{request_id}]: Failed to parse JSON for '{param_name}', keeping as string")
                         pass  # Keep as string if not valid JSON
-                elif isinstance(value, str) and ',' in value and param_name in ['rc_numbers', 'build_numbers', 'components', 'integ_test_build_numbers']:
+                elif isinstance(value, str) and ',' in value and param_name in ['rc_numbers', 'build_numbers', 'components']:
                     # Handle comma-separated values for array parameters
                     value = [item.strip() for item in value.split(',') if item.strip()]
-                    logger.info(f"LAMBDA_HANDLER [{request_id}]: Split comma-separated '{param_name}': {value}")
-                elif isinstance(value, str) and param_name in ['rc_numbers', 'build_numbers', 'components', 'integ_test_build_numbers'] and value.strip():
+                elif isinstance(value, str) and param_name in ['rc_numbers', 'build_numbers', 'components'] and value.strip():
                     # Single value for array parameter - convert to list
                     value = [value.strip()]
-                    logger.info(f"LAMBDA_HANDLER [{request_id}]: Converted single value to array for '{param_name}': {value}")
 
                 params[param_name] = value
 
-        # Get agent_type from parameters if passed by the supervisor agent
-        agent_type = params.get('agent_type')
-
-        # If agent_type is not provided, infer it from the function name using exact mappings
-        if not agent_type:
-            # Integration Test Agent functions
-            if function_name in ['get_integration_test_metrics', 'get_rc_build_mapping']:
-                agent_type = 'integration-test'
-                logger.info(f"Mapped function '{function_name}' to agent_type 'integration-test'")
-
-            # Build Metrics Agent functions
-            elif function_name in ['get_build_metrics', 'resolve_components_from_builds']:
-                agent_type = 'build-metrics'
-                logger.info(f"Mapped function '{function_name}' to agent_type 'build-metrics'")
-
-            # Release Metrics Agent functions
-            elif function_name in ['get_release_metrics']:
-                agent_type = 'release-metrics'
-                logger.info(f"Mapped function '{function_name}' to agent_type 'release-metrics'")
-
-            # Default fallback
-            else:
-                agent_type = 'integration-test'  # Default fallback
-                logger.warning(f"Unknown function '{function_name}', using default agent_type: {agent_type}")
-
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Function: {function_name}, Agent: {agent_type}")
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: Final params: {params}")
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: About to route to function handler")
+        logger.info(f"LAMBDA_HANDLER [{request_id}]: Parsed params: {list(params.keys())}")
 
         # Route based on function name
-        if function_name == 'test_basic':
-            result = {'status': 'success', 'message': 'Enhanced Lambda function is working', 'agent_type': agent_type}
-        # Route to specific function handlers
-        elif function_name in [
-            # Integration Test Agent functions
-            'get_integration_test_metrics',
-            # Build Metrics Agent functions
-            'get_build_metrics',
-            # Release Metrics Agent functions
-            'get_release_metrics',
-            # Deprecated but still supported
-            'get_test_metrics', 'get_metrics'
-        ]:
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: Calling handle_metrics_query for {function_name}")
-            result = handle_metrics_query(agent_type, function_name, params, request_id)
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: handle_metrics_query completed, result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-
-        # Handle component resolution (used by both Build and Release agents)
-        elif function_name == 'resolve_components_from_builds':
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: Calling handle_component_resolution")
+        if function_name == 'resolve_components_from_builds':
+            logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_component_resolution")
             result = handle_component_resolution(params)
 
-        # Handle RC build mapping (used by Integration Test agent)
         elif function_name == 'get_rc_build_mapping':
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: Calling handle_rc_build_mapping")
+            logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_rc_build_mapping")
             result = handle_rc_build_mapping(params)
 
-        # Handle unknown functions
-        elif not function_name:
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: No function name provided, calling handle_metrics_query with default")
-            result = handle_metrics_query(agent_type, function_name, params, request_id)
+        elif function_name == 'query_metrics' or function_name == '' or function_name is None:
+            # Unified metrics query handler - routes all metrics queries through agentic search
+            logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_metrics_query (agentic search)")
+            result = handle_metrics_query(params, request_id)
+
         else:
             result = {'error': f'Unknown function: {function_name}'}
 
-        logger.info(f"LAMBDA_HANDLER [{request_id}]: About to create response")
         response = create_response(event, result)
         logger.info(f"LAMBDA_HANDLER [{request_id}]: Response created successfully")
         return response

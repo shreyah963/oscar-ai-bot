@@ -16,6 +16,7 @@ All other config comes from CDK Lambda environment variables.
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Dict
 
 import boto3
@@ -47,6 +48,7 @@ class MetricsConfig:
         secrets = self._load_from_metrics_secret()
         self.opensearch_host = secrets.get('OPENSEARCH_HOST', '')
 
+        # Validate required config
         if validate_required and not self.metrics_cross_account_role_arn:
             raise ValueError("METRICS_CROSS_ACCOUNT_ROLE_ARN environment variable is not set")
         if validate_required and not self.opensearch_host:
@@ -63,14 +65,19 @@ class MetricsConfig:
         self.large_query_size = int(os.environ.get('OPENSEARCH_LARGE_QUERY_SIZE', 1000))
         self.opensearch_request_timeout = int(os.environ.get('OPENSEARCH_REQUEST_TIMEOUT', 60))
 
-        # Index names (set by CDK)
+        # Index names (set by CDK or env vars).
+        # These MUST match the concrete index (or alias) configured in the
+        # OpenSearch flow agent's QueryPlanningTool — wildcards will cause
+        # "Failed to extract index mapping" errors.
+        # Build/test indices are year-based; default to current year.
+        current_year = datetime.now().strftime('%Y')
         self.integration_test_index = os.environ.get(
             'OPENSEARCH_INTEGRATION_TEST_INDEX',
-            'opensearch-integration-test-results-*'
+            f'opensearch-integration-test-results-{current_year}'
         )
         self.build_results_index = os.environ.get(
             'OPENSEARCH_BUILD_RESULTS_INDEX',
-            'opensearch-distribution-build-results-*'
+            f'opensearch-distribution-build-results-{current_year}'
         )
         self.release_metrics_index = os.environ.get(
             'OPENSEARCH_RELEASE_METRICS_INDEX',
@@ -79,6 +86,9 @@ class MetricsConfig:
 
         # Response configuration
         self.bedrock_message_version = os.environ.get('BEDROCK_RESPONSE_MESSAGE_VERSION', '1.0')
+
+        # Agentic search pipeline configuration
+        self.agentic_pipeline = os.environ.get('AGENTIC_PIPELINE', 'metrics-agentic-pipeline')
 
         logger.info(f"Initialized MetricsConfig - Region: {self.region}")
 
@@ -122,6 +132,7 @@ class MetricsConfig:
             Clean OpenSearch host without protocol prefix
         """
         return self.opensearch_host.replace('https://', '')
+
 
     def get_integration_test_index_pattern(self) -> str:
         """Get integration test index pattern for queries.
