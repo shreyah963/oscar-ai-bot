@@ -11,16 +11,14 @@ from aws_cdk.assertions import Template
 
 from plugins.base_plugin import LambdaConfig, OscarPlugin
 from plugins.jenkins import JenkinsPlugin
-from plugins.metrics.build import MetricsBuildPlugin
-from plugins.metrics.release import MetricsReleasePlugin
-from plugins.metrics.test import MetricsTestPlugin
+from plugins.metrics import MetricsPlugin
 from stacks.lambda_stack import OscarLambdaStack
 from stacks.permissions_stack import OscarPermissionsStack
 from stacks.secrets_stack import OscarSecretsStack
 from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
 
-ALL_PLUGINS = [JenkinsPlugin(), MetricsBuildPlugin(), MetricsTestPlugin(), MetricsReleasePlugin()]
+ALL_PLUGINS = [JenkinsPlugin(), MetricsPlugin()]
 PLUGIN_IDS = [p.name for p in ALL_PLUGINS]
 ENV = Environment(account="123456789012", region="us-east-1")
 
@@ -91,8 +89,8 @@ class TestPluginContract:
 class TestPluginRegistration:
     """Validate the specific plugin set and their access levels."""
 
-    def test_four_plugins_registered(self):
-        assert len(ALL_PLUGINS) == 4
+    def test_two_plugins_registered(self):
+        assert len(ALL_PLUGINS) == 2
 
     def test_plugin_names_are_unique(self):
         names = [p.name for p in ALL_PLUGINS]
@@ -101,14 +99,8 @@ class TestPluginRegistration:
     def test_jenkins_is_privileged_only(self):
         assert JenkinsPlugin().get_access_level() == "privileged"
 
-    def test_metrics_build_access_level(self):
-        assert MetricsBuildPlugin().get_access_level() == "both"
-
-    def test_metrics_test_access_level(self):
-        assert MetricsTestPlugin().get_access_level() == "both"
-
-    def test_metrics_release_access_level(self):
-        assert MetricsReleasePlugin().get_access_level() == "both"
+    def test_metrics_access_level(self):
+        assert MetricsPlugin().get_access_level() == "both"
 
 
 # ---------------------------------------------------------------------------
@@ -154,28 +146,19 @@ class TestPluginStackWiring:
             assert plugin.name in stacks.lambda_functions, \
                 f"Plugin '{plugin.name}' missing from lambda_functions"
 
-    def test_metrics_plugins_share_one_lambda(self, stacks):
-        """All 3 metrics plugins should resolve to the same Lambda (shared entry path)."""
-        build_fn = stacks.lambda_functions["metrics-build"]
-        test_fn = stacks.lambda_functions["metrics-test"]
-        release_fn = stacks.lambda_functions["metrics-release"]
-        assert build_fn is test_fn, "metrics-build and metrics-test should share a Lambda"
-        assert build_fn is release_fn, "metrics-build and metrics-release should share a Lambda"
-
     def test_jenkins_has_own_lambda(self, stacks):
         """Jenkins should have a separate Lambda from metrics."""
         jenkins_fn = stacks.lambda_functions["jenkins"]
-        metrics_fn = stacks.lambda_functions["metrics-build"]
+        metrics_fn = stacks.lambda_functions["metrics"]
         assert jenkins_fn is not metrics_fn
 
     def test_lambda_function_count(self, stacks):
-        """Should be 4 entries in lambda_functions dict (4 plugins) + 2 core."""
-        # 4 plugins + supervisor-agent + communication-handler = 6 entries
-        # But 3 metrics share 1 Lambda object, so 6 keys but 4 unique functions
-        assert len(stacks.lambda_functions) == 6
+        """Should be 2 plugin entries + 2 core = 4 keys in lambda_functions dict."""
+        # 2 plugins + supervisor-agent + communication-handler = 4 entries
+        assert len(stacks.lambda_functions) == 4
 
     def test_lambda_template_function_count(self, stacks):
         """CloudFormation template should have 4 Lambda functions
-        (supervisor + communication + jenkins + 1 shared metrics)."""
+        (supervisor + communication + jenkins + unified metrics)."""
         template = Template.from_stack(stacks)
         template.resource_count_is("AWS::Lambda::Function", 4)

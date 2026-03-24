@@ -9,9 +9,7 @@ from aws_cdk import App, Environment
 from aws_cdk.assertions import Template
 
 from plugins.jenkins import JenkinsPlugin
-from plugins.metrics.build import MetricsBuildPlugin
-from plugins.metrics.release import MetricsReleasePlugin
-from plugins.metrics.test import MetricsTestPlugin
+from plugins.metrics import MetricsPlugin
 from stacks.permissions_stack import OscarPermissionsStack
 
 
@@ -22,7 +20,7 @@ def template():
     os.environ["CDK_DEFAULT_REGION"] = "us-east-1"
 
     app = App()
-    plugins = [JenkinsPlugin(), MetricsBuildPlugin(), MetricsTestPlugin(), MetricsReleasePlugin()]
+    plugins = [JenkinsPlugin(), MetricsPlugin()]
     stack = OscarPermissionsStack(
         app,
         "TestOscarPermissionsStack",

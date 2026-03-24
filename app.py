@@ -17,9 +17,7 @@ from aws_cdk import App, Environment
 from dotenv import load_dotenv
 
 from plugins.jenkins import JenkinsPlugin
-from plugins.metrics.build import MetricsBuildPlugin
-from plugins.metrics.release import MetricsReleasePlugin
-from plugins.metrics.test import MetricsTestPlugin
+from plugins.metrics import MetricsPlugin
 from stacks.api_gateway_stack import OscarApiGatewayStack
 from stacks.bedrock_agents_stack import OscarAgentsStack
 from stacks.knowledge_base_stack import OscarKnowledgeBaseStack
@@ -64,9 +62,7 @@ def main() -> None:
     # Register plugins
     plugins = [
         JenkinsPlugin(),
-        MetricsBuildPlugin(),
-        MetricsTestPlugin(),
-        MetricsReleasePlugin(),
+        MetricsPlugin(),
     ]
 
     # Deploy stacks in dependency order

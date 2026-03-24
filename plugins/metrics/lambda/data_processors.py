@@ -259,22 +259,6 @@ def extract_release_results(opensearch_result: Dict[str, Any]) -> List[Dict[str,
     for hit in hits:
         source = hit['_source']
 
-        # Calculate enhanced readiness score based on all available metrics
-        readiness_score = 0
-
-        # Core release readiness checks
-        if source.get('release_issue_exists'):
-            readiness_score += 1
-        if source.get('release_notes'):
-            readiness_score += 1
-        if source.get('version_increment'):
-            readiness_score += 1
-        if source.get('release_branch'):
-            readiness_score += 1
-        if source.get('release_owner_exists'):
-            readiness_score += 1
-
-        # Additional quality checks
         issues_open = source.get('issues_open', 0)
         pulls_open = source.get('pulls_open', 0)
         autocut_issues_open = source.get('autocut_issues_open', 0)
@@ -307,13 +291,6 @@ def extract_release_results(opensearch_result: Dict[str, Any]) -> List[Dict[str,
             'pulls_open': pulls_open,
             'pulls_closed': source.get('pulls_closed', 0),
             'autocut_issues_open': autocut_issues_open,
-
-            # Calculated readiness metrics
-            'readiness_score': round(readiness_score, 1),
-            # Quality indicators
-            'has_open_issues': issues_open > 0,
-            'has_open_pulls': pulls_open > 0,
-            'has_autocut_issues': autocut_issues_open > 0,
         })
 
     # Apply deduplication to avoid duplicate component entries
