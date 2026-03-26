@@ -69,15 +69,15 @@ class MetricsConfig:
         # These MUST match the concrete index (or alias) configured in the
         # OpenSearch flow agent's QueryPlanningTool — wildcards will cause
         # "Failed to extract index mapping" errors.
-        # Build/test indices are year-based; default to current year.
-        current_year = datetime.now().strftime('%Y')
+        # Build/test indices are month-year-based; default to current month-year.
+        current_month_year = datetime.now().strftime('%m-%Y')
         self.integration_test_index = os.environ.get(
             'OPENSEARCH_INTEGRATION_TEST_INDEX',
-            f'opensearch-integration-test-results-{current_year}'
+            f'opensearch-integration-test-results-{current_month_year}'
         )
         self.build_results_index = os.environ.get(
             'OPENSEARCH_BUILD_RESULTS_INDEX',
-            f'opensearch-distribution-build-results-{current_year}'
+            f'opensearch-distribution-build-results-{current_month_year}'
         )
         self.release_metrics_index = os.environ.get(
             'OPENSEARCH_RELEASE_METRICS_INDEX',
@@ -140,7 +140,7 @@ class MetricsConfig:
         Returns:
             Index pattern for integration test queries
         """
-        return f"{self.integration_test_index}-*"
+        return "opensearch-integration-test-results-*"
 
     def get_build_results_index_pattern(self) -> str:
         """Get build results index pattern for queries.
@@ -148,7 +148,7 @@ class MetricsConfig:
         Returns:
             Index pattern for build results queries
         """
-        return f"{self.build_results_index}-*"
+        return "opensearch-distribution-build-results-*"
 
 
 class _ConfigProxy:

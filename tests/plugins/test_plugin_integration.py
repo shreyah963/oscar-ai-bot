@@ -162,3 +162,161 @@ class TestPluginStackWiring:
         (supervisor + communication + jenkins + unified metrics)."""
         template = Template.from_stack(stacks)
         template.resource_count_is("AWS::Lambda::Function", 4)
+
+
+# ---------------------------------------------------------------------------
+# Metrics plugin — no-write guardrail tests
+# ---------------------------------------------------------------------------
+
+class TestMetricsNoWriteGuardrail:
+    """Ensure the metrics plugin never makes mutating requests to OpenSearch.
+
+    All OpenSearch calls from the metrics Lambda must be read-only (GET).
+    These tests statically verify that no code path can issue POST, PUT,
+    or DELETE requests.
+    """
+
+    def test_iam_policies_exclude_write_actions(self):
+        """IAM policies must not grant es:ESHttpPost, es:ESHttpPut, or es:ESHttpDelete."""
+        plugin = MetricsPlugin()
+        policies = plugin.get_iam_policies("123456789012", "us-east-1", "dev")
+        forbidden_actions = {"es:ESHttpPost", "es:ESHttpPut", "es:ESHttpDelete"}
+        for stmt in policies:
+            stmt_json = stmt.to_json()
+            actions = stmt_json.get("Action", [])
+            if isinstance(actions, str):
+                actions = [actions]
+            overlap = forbidden_actions & set(actions)
+            assert not overlap, (
+                f"Metrics IAM policy grants forbidden actions: {overlap}. "
+                f"This plugin must be read-only — no POST/PUT/DELETE on OpenSearch."
+            )
+
+    def test_iam_policies_exclude_wildcard_es_actions(self):
+        """IAM policies must not grant es:* (blanket OpenSearch access)."""
+        plugin = MetricsPlugin()
+        policies = plugin.get_iam_policies("123456789012", "us-east-1", "dev")
+        for stmt in policies:
+            stmt_json = stmt.to_json()
+            actions = stmt_json.get("Action", [])
+            if isinstance(actions, str):
+                actions = [actions]
+            assert "es:*" not in actions, (
+                "Metrics IAM policy must not grant wildcard es:* access"
+            )
+
+    def test_no_post_calls_in_metrics_lambda(self):
+        """No code in the metrics Lambda may invoke _make_request or opensearch_request with POST."""
+        import ast
+        import glob
+
+        lambda_dir = os.path.join("plugins", "metrics", "lambda")
+        violations = []
+
+        for py_file in glob.glob(os.path.join(lambda_dir, "*.py")):
+            with open(py_file) as f:
+                source = f.read()
+            try:
+                tree = ast.parse(source, filename=py_file)
+            except SyntaxError:
+                continue
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = None
+                if isinstance(func, ast.Name):
+                    name = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                if name not in ("opensearch_request", "_make_request"):
+                    continue
+                # First positional arg is the HTTP method
+                if node.args:
+                    method_arg = node.args[0]
+                    if isinstance(method_arg, ast.Constant) and method_arg.value == "POST":
+                        violations.append(
+                            f"{os.path.basename(py_file)}:{node.lineno} "
+                            f"{name}('POST', ...) — POST is forbidden"
+                        )
+
+        assert not violations, (
+            "Metrics Lambda makes POST calls to OpenSearch:\n"
+            + "\n".join(violations)
+        )
+
+    def test_no_direct_post_put_delete_requests_in_metrics_lambda(self):
+        """Metrics Lambda must not call requests.post(), requests.put(), or requests.delete()."""
+        import ast
+        import glob
+
+        lambda_dir = os.path.join("plugins", "metrics", "lambda")
+        forbidden = {"post", "put", "delete"}
+        violations = []
+
+        for py_file in glob.glob(os.path.join(lambda_dir, "*.py")):
+            with open(py_file) as f:
+                source = f.read()
+            try:
+                tree = ast.parse(source, filename=py_file)
+            except SyntaxError:
+                continue
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if (isinstance(func, ast.Attribute)
+                        and func.attr in forbidden
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "requests"):
+                    violations.append(
+                        f"{os.path.basename(py_file)}:{node.lineno} "
+                        f"calls requests.{func.attr}()"
+                    )
+
+        assert not violations, (
+            "Metrics Lambda makes forbidden HTTP calls:\n"
+            + "\n".join(violations)
+        )
+
+    def test_make_request_only_called_with_get(self):
+        """_make_request() and opensearch_request() must only be invoked with GET."""
+        import ast
+        import glob
+
+        lambda_dir = os.path.join("plugins", "metrics", "lambda")
+        violations = []
+
+        for py_file in glob.glob(os.path.join(lambda_dir, "*.py")):
+            with open(py_file) as f:
+                source = f.read()
+            try:
+                tree = ast.parse(source, filename=py_file)
+            except SyntaxError:
+                continue
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = None
+                if isinstance(func, ast.Name):
+                    name = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                if name not in ("_make_request", "opensearch_request"):
+                    continue
+                if node.args:
+                    method_arg = node.args[0]
+                    if isinstance(method_arg, ast.Constant) and method_arg.value != "GET":
+                        violations.append(
+                            f"{os.path.basename(py_file)}:{node.lineno} "
+                            f"{name}('{method_arg.value}', ...) — only GET allowed"
+                        )
+
+        assert not violations, (
+            "Metrics Lambda uses non-GET HTTP methods:\n"
+            + "\n".join(violations)
+        )

@@ -22,12 +22,12 @@ QUERY EXAMPLES:
 - "Which components have build failures?" → Routes to build metrics
 
 DATA SOURCES:
-1. Build Results (opensearch-distribution-build-results-{year}):
+1. Build Results (opensearch-distribution-build-results-{month}-{year}):
    - Component details, build status, distribution build numbers
    - Version and RC tracking, repository information
    - Build timing and URLs
 
-2. Integration Test Results (opensearch-integration-test-results-{year}):
+2. Integration Test Results (opensearch-integration-test-results-{month}-{year}):
    - Test execution results with/without security
    - Platform/architecture details (linux/windows, x64/arm64)
    - Distribution build and integration test build numbers
