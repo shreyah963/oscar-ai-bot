@@ -133,7 +133,7 @@ def agentic_search(index: str, pipeline: str, query_text: str) -> Dict[str, Any]
     the agentic query body. Uses SigV4 signing for auth.
 
     Args:
-        index: Target index name (e.g., 'opensearch-integration-test-results-2026')
+        index: Target index name (e.g., 'opensearch-integration-test-results-03-2026')
         pipeline: Agentic pipeline name for this index
         query_text: Enhanced natural language query
 

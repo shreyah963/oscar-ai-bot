@@ -68,7 +68,7 @@ POST /_plugins/_ml/agents/_register
       "type": "QueryPlanningTool",
       "parameters": {
         "model_id": "<registered-model-id>",
-        "index": "opensearch-distribution-build-results-2026"
+        "index": "opensearch-distribution-build-results-03-2026"
       }
     }
   ]
@@ -100,8 +100,8 @@ PUT /_search/pipeline/metrics-agentic-pipeline
 ```
 
 This single pipeline is used for all metrics indices:
-- `opensearch-distribution-build-results-{year}`
-- `opensearch-integration-test-results-{year}`
+- `opensearch-distribution-build-results-{month}-{year}`
+- `opensearch-integration-test-results-{month}-{year}`
 - `opensearch_release_metrics`
 
 ## IAM Permissions
@@ -115,7 +115,6 @@ The cross-account role assumed by the Lambda needs the following permissions on 
     {
       "Effect": "Allow",
       "Action": [
-        "es:ESHttpPost",
         "es:ESHttpGet"
       ],
       "Resource": [
@@ -127,8 +126,7 @@ The cross-account role assumed by the Lambda needs the following permissions on 
 ```
 
 Required permissions:
-- `es:ESHttpPost` — For `/_search` requests with `search_pipeline` parameter
-- `es:ESHttpGet` — For ML model access if applicable
+- `es:ESHttpGet` — For `/_search` requests with `search_pipeline` parameter and ML model access
 
 The Lambda's execution role also needs STS AssumeRole permission to assume the cross-account role.
 
@@ -138,7 +136,7 @@ The Lambda's execution role also needs STS AssumeRole permission to assume the c
 
 Request:
 ```
-POST /opensearch-distribution-build-results-2026/_search?search_pipeline=metrics-agentic-pipeline
+GET /opensearch-distribution-build-results-03-2026/_search?search_pipeline=metrics-agentic-pipeline
 {
   "query": {
     "agentic": {
@@ -152,7 +150,7 @@ POST /opensearch-distribution-build-results-2026/_search?search_pipeline=metrics
 
 Request:
 ```
-POST /opensearch-integration-test-results-2026/_search?search_pipeline=metrics-agentic-pipeline
+GET /opensearch-integration-test-results-03-2026/_search?search_pipeline=metrics-agentic-pipeline
 {
   "query": {
     "agentic": {
@@ -166,7 +164,7 @@ POST /opensearch-integration-test-results-2026/_search?search_pipeline=metrics-a
 
 Request:
 ```
-POST /opensearch_release_metrics/_search?search_pipeline=metrics-agentic-pipeline
+GET /opensearch_release_metrics/_search?search_pipeline=metrics-agentic-pipeline
 {
   "query": {
     "agentic": {
@@ -244,8 +242,8 @@ These are passed through from `.env` to the Lambda as environment variables. All
 |----------|-------------|---------|
 | `OPENSEARCH_REGION` | AWS region of the OpenSearch cluster | `us-east-1` |
 | `OPENSEARCH_SERVICE` | AWS service name for SigV4 signing | `es` |
-| `OPENSEARCH_INTEGRATION_TEST_INDEX` | Index name for integration test results | `opensearch-integration-test-results-{year}` |
-| `OPENSEARCH_BUILD_RESULTS_INDEX` | Index name for build results | `opensearch-distribution-build-results-{year}` |
+| `OPENSEARCH_INTEGRATION_TEST_INDEX` | Index name for integration test results | `opensearch-integration-test-results-{month}-{year}` |
+| `OPENSEARCH_BUILD_RESULTS_INDEX` | Index name for build results | `opensearch-distribution-build-results-{month}-{year}` |
 | `OPENSEARCH_RELEASE_METRICS_INDEX` | Index name for release metrics | `opensearch_release_metrics` |
 | `OPENSEARCH_LARGE_QUERY_SIZE` | Max documents per query | `1000` |
 | `OPENSEARCH_REQUEST_TIMEOUT` | Request timeout in seconds | `60` |
