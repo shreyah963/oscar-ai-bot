@@ -133,7 +133,6 @@ class MetricsConfig:
         """
         return self.opensearch_host.replace('https://', '')
 
-
     def get_integration_test_index_pattern(self) -> str:
         """Get integration test index pattern for queries.
 
