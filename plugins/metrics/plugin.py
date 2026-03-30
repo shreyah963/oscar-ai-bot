@@ -6,8 +6,8 @@
 import os
 
 from plugins.base_plugin import LambdaConfig, OscarPlugin, SecretConfig
-from plugins.metrics.iam_policies import get_policies
 from plugins.metrics.action_groups import get_action_groups
+from plugins.metrics.iam_policies import get_policies
 from plugins.metrics.instructions import (AGENT_INSTRUCTION,
                                           COLLABORATOR_INSTRUCTION)
 
