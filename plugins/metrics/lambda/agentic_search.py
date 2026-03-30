@@ -18,11 +18,11 @@ Functions:
     agentic_search: Send agentic search request to OpenSearch
 """
 
+import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
 from config import config
-import json
 
 logger = logging.getLogger(__name__)
 

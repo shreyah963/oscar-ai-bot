@@ -19,23 +19,13 @@ Functions:
 import logging
 from typing import Any, Dict, Optional
 
-from agentic_search import (
-    route_index,
-    enhance_query,
-    agentic_search,
-    IndexRoutingError,
-    AgenticSearchError,
-)
-from data_processors import (
-    extract_build_results,
-    extract_release_results,
-    extract_test_results,
-)
-from summary_generators import (
-    generate_build_summary,
-    generate_integration_summary,
-    generate_release_summary,
-)
+from agentic_search import (AgenticSearchError, IndexRoutingError,
+                            agentic_search, enhance_query, route_index)
+from data_processors import (extract_build_results, extract_release_results,
+                             extract_test_results)
+from summary_generators import (generate_build_summary,
+                                generate_integration_summary,
+                                generate_release_summary)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
