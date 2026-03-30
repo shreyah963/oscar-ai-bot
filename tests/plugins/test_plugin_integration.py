@@ -242,8 +242,8 @@ class TestMetricsNoWriteGuardrail:
                         )
 
         assert not violations, (
-            "Metrics Lambda makes POST calls to OpenSearch:\n"
-            + "\n".join(violations)
+            "Metrics Lambda makes POST calls to OpenSearch:\n" +
+            "\n".join(violations)
         )
 
     def test_no_direct_post_put_delete_requests_in_metrics_lambda(self):
@@ -267,18 +267,18 @@ class TestMetricsNoWriteGuardrail:
                 if not isinstance(node, ast.Call):
                     continue
                 func = node.func
-                if (isinstance(func, ast.Attribute)
-                        and func.attr in forbidden
-                        and isinstance(func.value, ast.Name)
-                        and func.value.id == "requests"):
+                if (isinstance(func, ast.Attribute) and
+                        func.attr in forbidden and
+                        isinstance(func.value, ast.Name) and
+                        func.value.id == "requests"):
                     violations.append(
                         f"{os.path.basename(py_file)}:{node.lineno} "
                         f"calls requests.{func.attr}()"
                     )
 
         assert not violations, (
-            "Metrics Lambda makes forbidden HTTP calls:\n"
-            + "\n".join(violations)
+            "Metrics Lambda makes forbidden HTTP calls:\n" +
+            "\n".join(violations)
         )
 
     def test_make_request_only_called_with_get(self):
@@ -317,6 +317,6 @@ class TestMetricsNoWriteGuardrail:
                         )
 
         assert not violations, (
-            "Metrics Lambda uses non-GET HTTP methods:\n"
-            + "\n".join(violations)
+            "Metrics Lambda uses non-GET HTTP methods:\n" +
+            "\n".join(violations)
         )
