@@ -122,6 +122,8 @@ def enhance_query(query: str, version: str, filters: Optional[Dict[str, Any]] = 
             parts.append(f"distribution: {filters['distribution']}")
 
     enhanced = ' '.join(parts)
+    # Instruct the LLM to use a large size in the generated DSL
+    enhanced += f'. Use size {config.large_query_size} in the query.'
     logger.info(f"ENHANCE_QUERY: '{query}' -> '{enhanced}'")
     return enhanced
 
