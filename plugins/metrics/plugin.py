@@ -37,7 +37,7 @@ class MetricsPlugin(OscarPlugin):
 
     @property
     def name(self):
-        return "metrics-build"
+        return "metrics"
 
     def get_lambda_config(self):
         return LambdaConfig(

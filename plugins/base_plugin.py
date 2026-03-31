@@ -47,7 +47,7 @@ class OscarPlugin(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Unique module name, e.g. 'jenkins', 'metrics-build'."""
+        """Unique module name, e.g. 'jenkins', 'metrics'."""
         ...
 
     @abstractmethod
