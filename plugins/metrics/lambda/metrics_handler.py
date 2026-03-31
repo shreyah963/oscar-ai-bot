@@ -16,11 +16,14 @@ Functions:
     handle_metrics_query: Main metrics query handler using agentic search
 """
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
 from agentic_search import (AgenticSearchError, IndexRoutingError,
                             agentic_search, enhance_query, route_index)
+from aws_utils import opensearch_request
+from config import config
 from data_processors import (extract_build_results, extract_release_results,
                              extract_test_results)
 from summary_generators import (generate_build_summary,
@@ -126,10 +129,18 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
             logger.error(f"METRICS_QUERY [{req_id}]: Unexpected response structure - missing hits")
             return {'error': 'Unexpected response structure', 'type': 'response_parse_error'}
 
-        # Step 5: Extract generated DSL for debugging (if present)
+        # Step 5: Re-execute with correct size.
+        # The agentic pipeline's LLM generates "size": 10 in its DSL.
+        # Grab the generated DSL, override
+        # size, and re-execute as a plain query to get all results.
         generated_dsl = opensearch_results.get('ext', {}).get('dsl_query')
         if generated_dsl:
             logger.info(f"METRICS_QUERY [{req_id}]: Generated DSL: {generated_dsl}")
+            parsed_dsl = json.loads(generated_dsl) if isinstance(generated_dsl, str) else dict(generated_dsl)
+            parsed_dsl['size'] = config.large_query_size
+            opensearch_results = opensearch_request('GET', f'/{index_pattern}/_search', parsed_dsl)
+            logger.info(f"METRICS_QUERY [{req_id}]: Re-executed with size={config.large_query_size}, "
+                        f"got {len(opensearch_results.get('hits', {}).get('hits', []))} hits")
 
         # Step 6: Extract and process results based on agent type
         logger.info(f"METRICS_QUERY [{req_id}]: Extracting results for agent_type={agent_type}")
