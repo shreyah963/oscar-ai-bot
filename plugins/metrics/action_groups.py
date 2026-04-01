@@ -23,7 +23,7 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
                         parameters={
                             "query": bedrock.CfnAgent.ParameterDetailProperty(
                                 type="string",
-                                description="Natural language query about metrics (e.g., 'Show failed builds', 'What tests are failing on linux?', 'Release readiness for OpenSearch-Dashboards')",
+                                description="Natural language query about metrics (e.g., 'Failed components for 3.5.0', 'What tests are failing on linux for 3.6.0 version?', 'Release readiness for OpenSearch-Dashboards')",
                                 required=True,
                             ),
                             "version": bedrock.CfnAgent.ParameterDetailProperty(
