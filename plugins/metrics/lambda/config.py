@@ -133,21 +133,14 @@ class MetricsConfig:
         """
         return self.opensearch_host.replace('https://', '')
 
-    def get_integration_test_index_pattern(self) -> str:
-        """Get integration test index pattern for queries.
-
-        Returns:
-            Index pattern for integration test queries
-        """
-        return "opensearch-integration-test-results-*"
-
-    def get_build_results_index_pattern(self) -> str:
-        """Get build results index pattern for queries.
-
-        Returns:
-            Index pattern for build results queries
-        """
-        return "opensearch-distribution-build-results-*"
+    # --- Pre-agentic fallback: wildcard patterns for direct DSL queries ---
+    # def get_integration_test_index_pattern(self) -> str:
+    #     """Wildcard pattern for direct DSL queries across monthly indices."""
+    #     return "opensearch-integration-test-results-*"
+    #
+    # def get_build_results_index_pattern(self) -> str:
+    #     """Wildcard pattern for direct DSL queries across monthly indices."""
+    #     return "opensearch-distribution-build-results-*"
 
 
 class _ConfigProxy:

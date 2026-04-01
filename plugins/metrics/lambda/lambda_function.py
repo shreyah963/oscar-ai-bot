@@ -23,8 +23,9 @@ import uuid
 from typing import Any, Dict
 
 from config import config
-from helper_functions import (handle_component_resolution,
-                              handle_rc_build_mapping)
+# Pre-agentic fallback: uncomment if direct DSL routing is needed
+# from helper_functions import (handle_component_resolution,
+#                               handle_rc_build_mapping)
 from metrics_handler import handle_metrics_query
 from response_builder import create_response
 
@@ -85,15 +86,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"LAMBDA_HANDLER [{request_id}]: Parsed params: {list(params.keys())}")
 
         # Route based on function name
-        if function_name == 'resolve_components_from_builds':
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_component_resolution")
-            result = handle_component_resolution(params)
+        # --- Pre-agentic fallback: unreachable via Bedrock action group ---
+        # if function_name == 'resolve_components_from_builds':
+        #     logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_component_resolution")
+        #     result = handle_component_resolution(params)
+        # elif function_name == 'get_rc_build_mapping':
+        #     logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_rc_build_mapping")
+        #     result = handle_rc_build_mapping(params)
 
-        elif function_name == 'get_rc_build_mapping':
-            logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_rc_build_mapping")
-            result = handle_rc_build_mapping(params)
-
-        elif function_name == 'query_metrics' or function_name == '' or function_name is None:
+        if function_name == 'query_metrics' or function_name == '' or function_name is None:
             # Unified metrics query handler - routes all metrics queries through agentic search
             logger.info(f"LAMBDA_HANDLER [{request_id}]: Routing to handle_metrics_query (agentic search)")
             result = handle_metrics_query(params, request_id)

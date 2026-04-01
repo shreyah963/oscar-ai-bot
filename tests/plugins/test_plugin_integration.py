@@ -3,6 +3,8 @@
 """Integration tests validating plugins conform to the OscarPlugin interface
 and are wired correctly into CDK stacks."""
 
+import ast
+import glob
 import os
 
 import pytest
@@ -207,9 +209,6 @@ class TestMetricsNoWriteGuardrail:
 
     def test_no_post_calls_in_metrics_lambda(self):
         """No code in the metrics Lambda may invoke _make_request or opensearch_request with POST."""
-        import ast
-        import glob
-
         lambda_dir = os.path.join("plugins", "metrics", "lambda")
         violations = []
 
@@ -248,9 +247,6 @@ class TestMetricsNoWriteGuardrail:
 
     def test_no_direct_post_put_delete_requests_in_metrics_lambda(self):
         """Metrics Lambda must not call requests.post(), requests.put(), or requests.delete()."""
-        import ast
-        import glob
-
         lambda_dir = os.path.join("plugins", "metrics", "lambda")
         forbidden = {"post", "put", "delete"}
         violations = []
@@ -283,9 +279,6 @@ class TestMetricsNoWriteGuardrail:
 
     def test_make_request_only_called_with_get(self):
         """_make_request() and opensearch_request() must only be invoked with GET."""
-        import ast
-        import glob
-
         lambda_dir = os.path.join("plugins", "metrics", "lambda")
         violations = []
 
