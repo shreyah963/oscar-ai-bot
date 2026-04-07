@@ -9,8 +9,9 @@
 """
 Metrics Handler for Metrics Lambda Functions.
 
-This module provides the main metrics query handling logic using agentic search,
-coordinating between index routing, query enhancement, and data processors.
+This module provides the main metrics query handling logic using agentic search.
+The conversational agent on the OpenSearch side handles index routing, so this
+handler only needs to enhance the query, execute the search, and return results.
 
 Functions:
     handle_metrics_query: Main metrics query handler using agentic search
@@ -19,8 +20,8 @@ Functions:
 import logging
 from typing import Any, Dict, Optional
 
-from agentic_search import (AgenticSearchError, IndexRoutingError,
-                            agentic_search, enhance_query, route_index)
+from agentic_search import AgenticSearchError, agentic_search, enhance_query
+from config import config
 from data_processors import (extract_build_results, extract_release_results,
                              extract_test_results)
 from summary_generators import (generate_build_summary,
@@ -34,8 +35,9 @@ logger.setLevel(logging.INFO)
 def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
     """Metrics query handler using agentic search.
 
-    Receives a natural language query and version, routes to the appropriate index,
-    enhances the query with filters, executes agentic search, and processes results.
+    Receives a natural language query and version, enhances the query with
+    filters, executes agentic search via the conversational agent, and
+    returns results. Index routing is handled by the conversational agent.
 
     Args:
         params: Parameters for the query containing:
@@ -95,23 +97,14 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
 
         logger.info(f"METRICS_QUERY [{req_id}]: filters={filters}")
 
-        # Step 1: Route to appropriate index and pipeline
-        try:
-            index_pattern, pipeline_name, agent_type = route_index(query)
-            logger.info(f"METRICS_QUERY [{req_id}]: Routed to index={index_pattern}, pipeline={pipeline_name}, agent_type={agent_type}")
-        except IndexRoutingError as e:
-            logger.warning(f"METRICS_QUERY [{req_id}]: Index routing failed: {e}")
-            return {'error': str(e), 'type': 'routing_error'}
-
-        logger.info(f"METRICS_QUERY [{req_id}]: agent_type={agent_type}")
-
-        # Step 2: Enhance query with version and filters
+        # Step 1: Enhance query with version and filters
+        pipeline_name = config.agentic_pipeline
         enhanced_query = enhance_query(query, version, filters if filters else None)
         logger.info(f"METRICS_QUERY [{req_id}]: Enhanced query='{enhanced_query}'")
 
-        # Step 3: Execute agentic search
+        # Step 2: Execute agentic search (conversational agent handles index routing)
         try:
-            opensearch_results = agentic_search(index_pattern, pipeline_name, enhanced_query)
+            opensearch_results = agentic_search(pipeline_name, enhanced_query)
             logger.info(f"METRICS_QUERY [{req_id}]: Agentic search completed")
         except AgenticSearchError as e:
             logger.error(f"METRICS_QUERY [{req_id}]: Agentic search failed: {e}")
@@ -121,43 +114,45 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
                 'type': 'agentic_search_error'
             }
 
-        # Step 4: Validate response structure
+        # Step 3: Validate response structure
         if 'hits' not in opensearch_results or 'hits' not in opensearch_results.get('hits', {}):
             logger.error(f"METRICS_QUERY [{req_id}]: Unexpected response structure - missing hits")
             return {'error': 'Unexpected response structure', 'type': 'response_parse_error'}
 
-        # Step 5: Log generated DSL for debugging
+        # Step 4: Log generated DSL for debugging
         generated_dsl = opensearch_results.get('ext', {}).get('dsl_query')
         if generated_dsl:
             logger.info(f"METRICS_QUERY [{req_id}]: Generated DSL: {generated_dsl}")
 
-        # Step 6: Extract and process results based on agent type
-        logger.info(f"METRICS_QUERY [{req_id}]: Extracting results for agent_type={agent_type}")
+        # Step 5: Extract, deduplicate, and summarize results
+        # Detect data type from the index name in the first hit
+        first_hit_index = ''
+        raw_hits = opensearch_results.get('hits', {}).get('hits', [])
+        if raw_hits:
+            first_hit_index = raw_hits[0].get('_index', '')
 
-        if agent_type == 'integration-test':
+        if 'integration-test' in first_hit_index:
             results = extract_test_results(opensearch_results)
             summary = generate_integration_summary(results)
             data_source = 'opensearch-integration-test-results'
-        elif agent_type == 'build-metrics':
+        elif 'distribution-build' in first_hit_index:
             results = extract_build_results(opensearch_results)
             summary = generate_build_summary(results)
             data_source = 'opensearch-distribution-build-results'
-        elif agent_type == 'release-metrics':
+        elif 'release' in first_hit_index:
             results = extract_release_results(opensearch_results)
             summary = generate_release_summary(results)
             data_source = 'opensearch_release_metrics'
         else:
             # Fallback to raw extraction
-            hits = opensearch_results.get('hits', {}).get('hits', [])
-            results = [hit.get('_source', {}) for hit in hits]
+            results = [hit.get('_source', {}) for hit in raw_hits]
             summary = {}
-            data_source = index_pattern
+            data_source = first_hit_index or 'unknown'
 
         logger.info(f"METRICS_QUERY [{req_id}]: Extracted {len(results)} results")
 
         # Build response
         response = {
-            'agent_type': agent_type,
             'version': version,
             'data_source': data_source,
             'total_results': len(results),
