@@ -24,8 +24,6 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from config import config
-
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +32,7 @@ class AgenticSearchError(Exception):
     def __init__(self, message: str, status_code: Optional[int] = None):
         super().__init__(message)
         self.status_code = status_code
+
 
 def enhance_query(query: str, version: str, filters: Optional[Dict[str, Any]] = None) -> str:
     """Append version, date context, and explicit filters to the natural language query.
