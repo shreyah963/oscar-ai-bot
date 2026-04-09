@@ -16,7 +16,6 @@ All other config comes from CDK Lambda environment variables.
 import json
 import logging
 import os
-from datetime import datetime
 from typing import Dict
 
 import boto3
@@ -65,24 +64,8 @@ class MetricsConfig:
         self.large_query_size = int(os.environ.get('OPENSEARCH_LARGE_QUERY_SIZE', 1000))
         self.opensearch_request_timeout = int(os.environ.get('OPENSEARCH_REQUEST_TIMEOUT', 60))
 
-        # Index names (set by CDK or env vars).
-        # These MUST match the concrete index (or alias) configured in the
-        # OpenSearch flow agent's QueryPlanningTool — wildcards will cause
-        # "Failed to extract index mapping" errors.
-        # Build/test indices are month-year-based; default to current month-year.
-        current_month_year = datetime.now().strftime('%m-%Y')
-        self.integration_test_index = os.environ.get(
-            'OPENSEARCH_INTEGRATION_TEST_INDEX',
-            f'opensearch-integration-test-results-{current_month_year}'
-        )
-        self.build_results_index = os.environ.get(
-            'OPENSEARCH_BUILD_RESULTS_INDEX',
-            f'opensearch-distribution-build-results-{current_month_year}'
-        )
-        self.release_metrics_index = os.environ.get(
-            'OPENSEARCH_RELEASE_METRICS_INDEX',
-            'opensearch_release_metrics'
-        )
+        # Index names are no longer needed — the conversational agent
+        # handles index routing via ListIndexTool/IndexMappingTool.
 
         # Response configuration
         self.bedrock_message_version = os.environ.get('BEDROCK_RESPONSE_MESSAGE_VERSION', '1.0')
@@ -132,16 +115,6 @@ class MetricsConfig:
             Clean OpenSearch host without protocol prefix
         """
         return self.opensearch_host.replace('https://', '')
-
-    # --- Pre-agentic fallback: wildcard patterns for direct DSL queries ---
-    # def get_integration_test_index_pattern(self) -> str:
-    #     """Wildcard pattern for direct DSL queries across monthly indices."""
-    #     return "opensearch-integration-test-results-*"
-    #
-    # def get_build_results_index_pattern(self) -> str:
-    #     """Wildcard pattern for direct DSL queries across monthly indices."""
-    #     return "opensearch-distribution-build-results-*"
-
 
 class _ConfigProxy:
     """Proxy that caches config per lambda execution."""
