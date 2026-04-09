@@ -242,13 +242,13 @@ These are passed through from `.env` to the Lambda as environment variables. All
 |----------|-------------|---------|
 | `OPENSEARCH_REGION` | AWS region of the OpenSearch cluster | `us-east-1` |
 | `OPENSEARCH_SERVICE` | AWS service name for SigV4 signing | `es` |
-| `OPENSEARCH_INTEGRATION_TEST_INDEX` | Index name for integration test results | `opensearch-integration-test-results-{month}-{year}` |
-| `OPENSEARCH_BUILD_RESULTS_INDEX` | Index name for build results | `opensearch-distribution-build-results-{month}-{year}` |
-| `OPENSEARCH_RELEASE_METRICS_INDEX` | Index name for release metrics | `opensearch_release_metrics` |
 | `OPENSEARCH_LARGE_QUERY_SIZE` | Max documents per query | `1000` |
 | `OPENSEARCH_REQUEST_TIMEOUT` | Request timeout in seconds | `60` |
 | `AGENTIC_PIPELINE` | Agentic search pipeline name (shared across all indices) | `metrics-agentic-pipeline` |
 | `AGENTIC_SEARCH_TIMEOUT` | Timeout in seconds for agentic search requests | `120` |
+
+> **Note:** Index names (`OPENSEARCH_INTEGRATION_TEST_INDEX`, etc.) are no longer configured as env vars.
+> The conversational agent on OpenSearch handles index routing automatically via `ListIndexTool` and `IndexMappingTool`.
 
 ## Cross-Account Role Setup
 
