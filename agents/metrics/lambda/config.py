@@ -116,6 +116,7 @@ class MetricsConfig:
         """
         return self.opensearch_host.replace('https://', '')
 
+
 class _ConfigProxy:
     """Proxy that caches config per lambda execution."""
     def __init__(self):
