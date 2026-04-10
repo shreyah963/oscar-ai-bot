@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 from agents.jenkins import JenkinsAgent
 from agents.metrics import MetricsAgent
+from agents.github import GitHubAgent
 from stacks.api_gateway_stack import OscarApiGatewayStack
 from stacks.bedrock_agents_stack import OscarAgentsStack
 from stacks.knowledge_base_stack import OscarKnowledgeBaseStack
@@ -64,6 +65,7 @@ def main() -> None:
     agents = [
         JenkinsAgent(),
         MetricsAgent(),
+        GitHubAgent(),
     ]
 
     # Deploy stacks in dependency order
