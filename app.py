@@ -16,6 +16,7 @@ from typing import Optional
 from aws_cdk import App, Environment
 from dotenv import load_dotenv
 
+from agents.github import GitHubAgent
 from agents.jenkins import JenkinsAgent
 from agents.metrics import MetricsAgent
 from stacks.api_gateway_stack import OscarApiGatewayStack
@@ -64,6 +65,7 @@ def main() -> None:
     agents = [
         JenkinsAgent(),
         MetricsAgent(),
+        GitHubAgent(),
     ]
 
     # Deploy stacks in dependency order
