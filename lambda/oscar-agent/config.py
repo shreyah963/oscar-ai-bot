@@ -88,7 +88,7 @@ class Config:
 
         # Timeout thresholds
         self.hourglass_threshold = int(os.environ.get('HOURGLASS_THRESHOLD_SECONDS', 45))
-        self.timeout_threshold = int(os.environ.get('TIMEOUT_THRESHOLD_SECONDS', 120))
+        self.timeout_threshold = int(os.environ.get('TIMEOUT_THRESHOLD_SECONDS', 180))
 
         # Thread pool settings
         self.max_workers = int(os.environ.get('MAX_WORKERS', 100))
