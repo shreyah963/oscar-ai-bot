@@ -24,6 +24,7 @@ from stacks.knowledge_base_stack import OscarKnowledgeBaseStack
 from stacks.lambda_stack import OscarLambdaStack
 from stacks.permissions_stack import OscarPermissionsStack
 from stacks.secrets_stack import OscarSecretsStack
+from stacks.security_monitoring_stack import OscarSecurityMonitoringStack
 from stacks.storage_stack import OscarStorageStack
 from stacks.vpc_stack import OscarVpcStack
 
@@ -153,6 +154,22 @@ def main() -> None:
     agents_stack.add_dependency(permissions_stack)
     agents_stack.add_dependency(knowledge_base_stack)
     agents_stack.add_dependency(lambda_stack)
+
+    # 9. Security Monitoring
+    security_monitoring_stack = OscarSecurityMonitoringStack(
+        app, f"OscarSecurityMonitoringStack-{environment}",
+        env=env,
+        environment=environment,
+        permissions_stack=permissions_stack,
+        secrets_stack=secrets_stack,
+        storage_stack=storage_stack,
+        agents=agents,
+        description="OSCAR security monitoring and alarms",
+    )
+    security_monitoring_stack.add_dependency(permissions_stack)
+    security_monitoring_stack.add_dependency(secrets_stack)
+    security_monitoring_stack.add_dependency(storage_stack)
+    security_monitoring_stack.add_dependency(lambda_stack)
 
     # Synthesize the CloudFormation templates
     app.synth()
