@@ -103,15 +103,20 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
         logger.info(f"METRICS_QUERY [{req_id}]: Enhanced query='{enhanced_query}'")
 
         # Step 2: Execute agentic search (conversational agent handles index routing)
+        memory_id = params.get('memory_id')
         try:
-            opensearch_results = agentic_search(pipeline_name, enhanced_query)
+            opensearch_results = agentic_search(pipeline_name, enhanced_query, memory_id=memory_id)
             logger.info(f"METRICS_QUERY [{req_id}]: Agentic search completed")
         except AgenticSearchError as e:
-            logger.error(f"AGENTIC_SEARCH_FAILED: Agentic search failed for request {req_id}: {e}")
+            logger.error(f"AGENTIC_SEARCH_FAILED [{req_id}]: {e}")
+            # Return a clear non-retryable error so Bedrock agent stops retrying
             return {
                 'error': str(e),
                 'status_code': e.status_code,
-                'type': 'agentic_search_error'
+                'type': 'agentic_search_error',
+                'retryable': False,
+                'message': 'The search agent could not generate a valid query. '
+                           'Try rephrasing or simplifying the question. Do not retry this exact query.'
             }
 
         # Step 3: Validate response structure
@@ -130,6 +135,9 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
         raw_hits = opensearch_results.get('hits', {}).get('hits', [])
         if raw_hits:
             first_hit_index = raw_hits[0].get('_index', '')
+            logger.info(f"METRICS_QUERY [{req_id}]: Resolved index: {first_hit_index}")
+        else:
+            logger.info(f"METRICS_QUERY [{req_id}]: Resolved index: none (empty result set)")
 
         if 'integration-test' in first_hit_index:
             results = extract_test_results(opensearch_results)
@@ -151,6 +159,12 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
 
         logger.info(f"METRICS_QUERY [{req_id}]: Extracted {len(results)} results")
 
+        # Log failed components for quick diagnosis
+        failed = [r.get('component', 'unknown') for r in results
+                  if r.get('component_build_result') == 'failed' or r.get('status') == 'failed']
+        if failed:
+            logger.warning(f"METRICS_QUERY [{req_id}]: {len(failed)} failures: {failed}")
+
         # Build response
         response = {
             'version': version,
@@ -163,6 +177,11 @@ def handle_metrics_query(params: Dict[str, Any], request_id: Optional[str] = Non
         # Include generated DSL when available
         if generated_dsl:
             response['generated_dsl'] = generated_dsl
+
+        # Include memory_id for conversational context continuity
+        response_memory_id = opensearch_results.get('ext', {}).get('memory_id')
+        if response_memory_id:
+            response['memory_id'] = response_memory_id
 
         logger.info(f"METRICS_QUERY [{req_id}]: Returning response with {len(results)} results")
         return response

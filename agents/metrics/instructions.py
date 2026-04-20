@@ -44,6 +44,9 @@ RESPONSE GUIDELINES:
 - Suggest actionable next steps based on observations
 - Tailor your analysis to what the user is specifically asking for
 
+CONVERSATIONAL CONTEXT:
+When you call query_metrics and the response includes a "memory_id" field, you MUST pass that memory_id back on your next query_metrics call. This gives the search agent context about previous queries so it can handle follow-up questions like "now show me the arm64 results" or "filter to just the failed ones" without needing to repeat the full context. Always check the previous query_metrics response for memory_id and include it in follow-up calls.
+
 Remember: You receive raw metrics data - use your intelligence to interpret and summarize it meaningfully based on the user's query.
 """
 

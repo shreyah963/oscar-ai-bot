@@ -80,7 +80,7 @@ def enhance_query(query: str, version: str, filters: Optional[Dict[str, Any]] = 
     return enhanced
 
 
-def agentic_search(pipeline: str, query_text: str) -> Dict[str, Any]:
+def agentic_search(pipeline: str, query_text: str, memory_id: Optional[str] = None) -> Dict[str, Any]:
     """Send agentic search request to OpenSearch.
 
     Sends a GET to /_search?search_pipeline={pipeline} with the agentic
@@ -90,6 +90,7 @@ def agentic_search(pipeline: str, query_text: str) -> Dict[str, Any]:
     Args:
         pipeline: Agentic pipeline name (e.g., 'metrics-agentic-pipeline')
         query_text: Enhanced natural language query
+        memory_id: Optional memory ID for conversational context continuity
 
     Returns:
         Raw OpenSearch response dict
@@ -108,17 +109,35 @@ def agentic_search(pipeline: str, query_text: str) -> Dict[str, Any]:
         }
     }
 
+    # Include memory_id for conversational context if provided
+    if memory_id:
+        body["query"]["agentic"]["memory_id"] = memory_id
+        logger.info(f"AGENTIC_SEARCH: Using memory_id={memory_id}")
+
     logger.info(f"AGENTIC_SEARCH: GET {path}")
     logger.info(f"AGENTIC_SEARCH: query_text='{query_text}'")
 
     try:
         result = opensearch_request('GET', path, body)
     except Exception as e:
-        raise AgenticSearchError(f"Agentic search request failed: {e}")
+        error_msg = str(e)
+        # Extract status code from error message if present
+        status_code = None
+        if 'OpenSearch request failed:' in error_msg:
+            try:
+                status_code = int(error_msg.split('OpenSearch request failed:')[1].strip().split(' ')[0])
+            except (ValueError, IndexError):
+                pass
+        raise AgenticSearchError(f"Agentic search request failed: {e}", status_code=status_code)
 
     # Log generated DSL if present
     dsl_query = result.get('ext', {}).get('dsl_query')
     if dsl_query:
         logger.info(f"AGENTIC_SEARCH: Generated DSL: {json.dumps(dsl_query)}")
+
+    # Return memory_id from response if present (for future calls)
+    response_memory_id = result.get('ext', {}).get('memory_id')
+    if response_memory_id:
+        logger.info(f"AGENTIC_SEARCH: Response memory_id={response_memory_id}")
 
     return result

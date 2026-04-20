@@ -31,6 +31,11 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
                                 description="OpenSearch version to scope the query (e.g., '3.2.0', '2.18.0')",
                                 required=True,
                             ),
+                            "memory_id": bedrock.CfnAgent.ParameterDetailProperty(
+                                type="string",
+                                description="Memory ID from a previous query_metrics response. Pass this to maintain conversational context with the search agent across follow-up queries.",
+                                required=False,
+                            ),
                         },
                     ),
                 ]
