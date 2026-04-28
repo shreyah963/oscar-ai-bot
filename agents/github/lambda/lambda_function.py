@@ -14,12 +14,14 @@ import boto3
 
 from authorizer import audit_log, is_write_operation, validate_org_scope
 from github_api import (
+    add_collaborator,
     add_comment,
     bulk_comment,
     get_external_contributors,
     get_new_maintainers,
     get_new_repositories,
     transfer_issue,
+    verify_maintainer_request,
 )
 from http_client import GitHubAPIError
 from mcp_client import MCPClient
@@ -97,6 +99,10 @@ TOOL_NAME_MAP = {
     "get_new_maintainers": None,
     "get_new_repositories": None,
     "get_external_contributors": None,
+    # Maintainer verification (direct API)
+    "verify_maintainer_request": None,
+    # Collaborator management (direct API)
+    "add_collaborator": None,
 }
 
 # Tools that need owner/repo injected
@@ -111,6 +117,8 @@ _DIRECT_API_FUNCTIONS = {
     "transfer_issue", "add_comment", "bulk_comment",
     "list_merge_candidates", "bulk_merge_prs",
     "get_new_maintainers", "get_new_repositories", "get_external_contributors",
+    "verify_maintainer_request",
+    "add_collaborator",
 }
 
 
@@ -265,6 +273,26 @@ def _handle_direct_api(
             request_id, org, repo, since, until,
         )
         return get_external_contributors(token, org, repo, since, until)
+
+    elif function_name == "verify_maintainer_request":
+        request_repo_owner = params.get("request_repo_owner", "")
+        request_repo_name = params.get("request_repo", "")
+        issue_number = int(params.get("issue_number", "0"))
+        logger.info(
+            "GITHUB [%s]: verify_maintainer_request %s/%s#%d",
+            request_id, request_repo_owner, request_repo_name, issue_number,
+        )
+        return verify_maintainer_request(token, request_repo_owner, request_repo_name, issue_number)
+
+    elif function_name == "add_collaborator":
+        repo = params.get("repo", "")
+        username = params.get("username", "")
+        permission = params.get("permission", "maintain")
+        logger.info(
+            "GITHUB [%s]: Direct API add_collaborator %s to %s with permission=%s",
+            request_id, username, repo, permission,
+        )
+        return add_collaborator(token, ORG, repo, username, permission)
 
     raise ValueError(f"Unknown direct API function: {function_name}")
 

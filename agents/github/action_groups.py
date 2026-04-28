@@ -355,4 +355,59 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
                 ]
             ),
         ),
+
+        # ---------------------------------------- Group 5: Maintainer Request Verification
+        bedrock.CfnAgent.AgentActionGroupProperty(
+            action_group_name="githubMaintainerVerification",
+            description="Verify maintainer request issues and manage repository collaborators",
+            action_group_state="ENABLED",
+            action_group_executor=executor,
+            function_schema=bedrock.CfnAgent.FunctionSchemaProperty(
+                functions=[
+                    bedrock.CfnAgent.FunctionProperty(
+                        name="verify_maintainer_request",
+                        description=(
+                            "Verify a maintainer request issue. Checks that: "
+                            "(1) title starts with '[GitHub Request]', "
+                            "(2) issue body contains 'User Permission' as request type, "
+                            "(3) issue has the 'github-request' label, "
+                            "(4) the nominee is a member of the opensearch-project org, "
+                            "(5) the issue opener is already a maintainer of the target repo "
+                            "(listed in MAINTAINERS.md). If all checks pass, the nominee is "
+                            "automatically added as a repository collaborator with maintain "
+                            "permission and an approval comment is posted on the issue."
+                        ),
+                        parameters={
+                            "request_repo_owner": _param(
+                                "string",
+                                "Owner of the repo where the request issue lives",
+                                True,
+                            ),
+                            "request_repo": _param(
+                                "string",
+                                "Repository name where the request issue lives",
+                                True,
+                            ),
+                            "issue_number": _param("string", "Issue number of the maintainer request", True),
+                        },
+                    ),
+                    bedrock.CfnAgent.FunctionProperty(
+                        name="add_collaborator",
+                        description=(
+                            "Add a user as a repository collaborator with a specified permission level. "
+                            "Uses the GitHub Collaborators API (Repo Settings → Collaborators → Add people). "
+                            "Requires explicit user confirmation before execution."
+                        ),
+                        parameters={
+                            "repo": _param("string", "Repository name", True),
+                            "username": _param("string", "GitHub username to add as collaborator", True),
+                            "permission": _param(
+                                "string",
+                                "Permission level: 'pull', 'triage', 'push', 'maintain', or 'admin'. Defaults to 'maintain'.",
+                            ),
+                        },
+                    ),
+                ]
+            ),
+        ),
     ]

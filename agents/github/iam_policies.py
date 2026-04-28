@@ -34,4 +34,12 @@ def get_policies(account_id: str, region: str, env: str) -> List[iam.PolicyState
                 f"arn:aws:logs:{region}:{account_id}:log-group:/aws/lambda/oscar-github-*",
             ],
         ),
+        # Bedrock model invocation for LLM-based parsing
+        iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["bedrock:InvokeModel"],
+            resources=[
+                f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+            ],
+        ),
     ]

@@ -168,15 +168,15 @@ class TestAgentStackWiring:
         assert github_fn is not metrics_fn
 
     def test_lambda_function_count(self, stacks):
-        """Should be 3 agent entries + 2 core = 5 keys in lambda_functions dict."""
-        # 3 agents + supervisor-agent + communication-handler = 5 entries
-        assert len(stacks.lambda_functions) == 5
+        """Should be 3 agent entries + 3 core = 6 keys in lambda_functions dict."""
+        # 3 agents + supervisor-agent + communication-handler + github-webhook-handler = 6 entries
+        assert len(stacks.lambda_functions) == 6
 
     def test_lambda_template_function_count(self, stacks):
-        """CloudFormation template should have 5 Lambda functions
-        (supervisor + communication + jenkins + metrics + github)."""
+        """CloudFormation template should have 6 Lambda functions
+        (supervisor + communication + webhook + jenkins + metrics + github)."""
         template = Template.from_stack(stacks)
-        template.resource_count_is("AWS::Lambda::Function", 5)
+        template.resource_count_is("AWS::Lambda::Function", 6)
 
 
 # ---------------------------------------------------------------------------
@@ -187,10 +187,10 @@ class TestGitHubAgentWriteOperations:
     """Validate the GitHub agent's write operation configuration."""
 
     def test_github_action_group_count(self):
-        """GitHub agent should have 5 action groups (2 deprecated, read, write, bulk merge)."""
+        """GitHub agent should have 7 action groups (2 deprecated, read, write, bulk merge, community metrics, maintainer verification)."""
         agent = GitHubAgent()
         groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
-        assert len(groups) == 5
+        assert len(groups) == 7
 
     def test_github_write_group_exists(self):
         """GitHub agent should have a write operations action group."""
@@ -214,6 +214,22 @@ class TestGitHubAgentWriteOperations:
         func_names = [f.name for f in merge_group.function_schema.functions]
         assert "list_merge_candidates" in func_names
         assert "bulk_merge_prs" in func_names
+
+    def test_github_maintainer_verification_group_exists(self):
+        """GitHub agent should have a maintainer verification action group."""
+        agent = GitHubAgent()
+        groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
+        group_names = [g.action_group_name for g in groups]
+        assert "githubMaintainerVerification" in group_names
+
+    def test_github_maintainer_verification_function_defined(self):
+        """Maintainer verification group should have verify_maintainer_request and add_collaborator."""
+        agent = GitHubAgent()
+        groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
+        group = next(g for g in groups if g.action_group_name == "githubMaintainerVerification")
+        func_names = [f.name for f in group.function_schema.functions]
+        assert "verify_maintainer_request" in func_names
+        assert "add_collaborator" in func_names
 
     def test_github_write_functions_defined(self):
         """All expected write functions should be defined in the write action group."""

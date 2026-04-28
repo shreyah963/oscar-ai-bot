@@ -25,6 +25,27 @@ or create a tracking meta-issue linking to related sub-issues.
    - Use bulk_comment to post a comment across multiple issues at once
    - Use add_comment for a single issue/PR comment
    - Use create_issue to create meta-issues with links to sub-issues in the body
+5. VERIFY MAINTAINER REQUESTS — Validate, approve, and add maintainers.
+   - Maintainer request issues are tracked in: {maintainer_request_repo}
+   - When asked to "review maintainer requests" or "check open maintainer requests":
+     1. First use `list_issues` with repo='{maintainer_request_repo_name}' \
+(owner is '{maintainer_request_repo_owner}'), label 'github-request', \
+and state 'open' to find open requests with '[GitHub Request]' in the title
+     2. Then call `verify_maintainer_request` for each matching issue with \
+request_repo_owner='{maintainer_request_repo_owner}' and \
+request_repo='{maintainer_request_repo_name}'
+   - The `verify_maintainer_request` function checks 5 conditions:
+     a. Title starts with '[GitHub Request]'
+     b. Issue body contains 'User Permission' as the answer to 'What is the type of request?'
+     c. Issue has the 'github-request' label
+     d. The nominee (parsed from issue body) is a member of the {org} organization
+     e. The issue opener is already a maintainer of the target repo (parsed from issue body, listed in MAINTAINERS.md)
+   - If all checks pass, the nominee is AUTOMATICALLY added as a repository collaborator \
+with maintain permission (via the Collaborators API) and an approval comment is posted on the issue
+6. ADD COLLABORATOR — Manually add a user as a repository collaborator.
+   - Use `add_collaborator` to add a GitHub user to a repository with a specified permission level
+   - Default permission is 'maintain'. Other options: 'pull', 'triage', 'push', 'admin'
+   - Requires explicit user confirmation before execution
 
 BULK MERGE GUARDRAILS:
 Every automated PR is validated against these checks before merging:
@@ -116,6 +137,8 @@ COLLABORATOR_INSTRUCTION = """Route to this agent when the user asks about:
 - Community metrics: new maintainers added, new repositories created, external contributors
 - Who was added as a maintainer in a given month/period
 - What companies external contributors are from
+- Verifying or approving maintainer requests (checking GitHub Request issues)
+- Adding collaborators/maintainers to repositories
 All operations are scoped to the {org} organization. \
 Bulk merge operations validate PRs against safety guardrails before merging. \
 Only call bulk_merge_prs after user confirmation."""

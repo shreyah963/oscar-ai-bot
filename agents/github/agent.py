@@ -11,6 +11,8 @@ from agents.github.iam_policies import get_policies
 from agents.github.instructions import AGENT_INSTRUCTION, COLLABORATOR_INSTRUCTION
 
 GITHUB_ORG = os.environ.get("GITHUB_ORG", "opensearch-project")
+MAINTAINER_ORG = os.environ.get("MAINTAINER_ORG", "opensearch-project")
+MAINTAINER_REQUEST_REPO = os.environ.get("MAINTAINER_REQUEST_REPO", "opensearch-project/.github")
 
 
 class GitHubAgent(OscarAgent):
@@ -29,6 +31,8 @@ class GitHubAgent(OscarAgent):
                 "MCP_TOOLSETS": "issues,pull_requests",
                 "MCP_READ_ONLY": "false",
                 "GITHUB_ORG": GITHUB_ORG,
+                "MAINTAINER_ORG": MAINTAINER_ORG,
+                "MAINTAINER_REQUEST_REPO": MAINTAINER_REQUEST_REPO,
                 **{k: os.environ[k] for k in (
                     "VERSION_INCREMENT_AUTHOR",
                     "RELEASE_NOTES_AUTHOR",
@@ -43,7 +47,15 @@ class GitHubAgent(OscarAgent):
         return get_action_groups(lambda_arn)
 
     def get_agent_instruction(self):
-        return AGENT_INSTRUCTION.format(org=GITHUB_ORG)
+        parts = MAINTAINER_REQUEST_REPO.split("/", 1)
+        owner = parts[0] if len(parts) == 2 else GITHUB_ORG
+        repo_name = parts[1] if len(parts) == 2 else parts[0]
+        return AGENT_INSTRUCTION.format(
+            org=GITHUB_ORG,
+            maintainer_request_repo=MAINTAINER_REQUEST_REPO,
+            maintainer_request_repo_owner=owner,
+            maintainer_request_repo_name=repo_name,
+        )
 
     def get_collaborator_instruction(self):
         return COLLABORATOR_INSTRUCTION.format(org=GITHUB_ORG)

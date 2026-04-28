@@ -151,6 +151,8 @@ class OscarLambdaStack(Stack):
             environment={
                 "WEBHOOK_SECRET_NAME": secret_name,
                 "GITHUB_BOT_USERNAME": os.environ.get("GITHUB_BOT_USERNAME", "oscar-github-agent-test"),
+                "GITHUB_AGENT_FUNCTION_NAME": f"oscar-github-{self.env_name}",
+                "MAINTAINER_REQUEST_REPO": os.environ.get("MAINTAINER_REQUEST_REPO", "opensearch-project/.github"),
             },
             role=execution_role,
             description="GitHub webhook handler — posts notifications to Slack",

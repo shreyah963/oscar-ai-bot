@@ -16,6 +16,8 @@ WRITE_FUNCTIONS = frozenset({
     "create_issue", "close_issue", "transfer_issue",
     "add_comment", "bulk_comment",
     "bulk_merge_prs",
+    "verify_maintainer_request",
+    "add_collaborator",
 })
 
 

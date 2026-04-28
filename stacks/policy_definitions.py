@@ -276,6 +276,14 @@ class OscarPolicyDefinitions:
                     f"arn:aws:secretsmanager:{self.region}:{self.account_id}:secret:oscar-github-webhook-{self.env_name}*",
                 ],
             ),
+            iam.PolicyStatement(
+                sid="InvokeGitHubAgentLambda",
+                effect=iam.Effect.ALLOW,
+                actions=["lambda:InvokeFunction"],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account_id}:function:oscar-github-{self.env_name}",
+                ],
+            ),
         ]
 
     def get_api_gateway_policies(self) -> List[iam.PolicyStatement]:

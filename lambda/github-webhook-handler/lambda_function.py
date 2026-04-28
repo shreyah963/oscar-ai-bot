@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 BOT_MENTION = os.environ.get("GITHUB_BOT_USERNAME", "oscar-github-agent-test")
+GITHUB_AGENT_FUNCTION_NAME = os.environ.get("GITHUB_AGENT_FUNCTION_NAME", "")
+MAINTAINER_REQUEST_REPO = os.environ.get("MAINTAINER_REQUEST_REPO", "opensearch-project/.github")
 
 
 def _get_secrets() -> Dict[str, str]:
@@ -56,6 +58,33 @@ def _verify_signature(payload_body: str, signature_header: str) -> bool:
         secret.encode(), payload_body.encode(), hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, signature_header)
+
+
+def _trigger_maintainer_verification(repo_full_name: str, issue_number: int) -> None:
+    """Invoke the GitHub agent Lambda to verify a maintainer request."""
+    if not GITHUB_AGENT_FUNCTION_NAME:
+        logger.warning("GITHUB_AGENT_FUNCTION_NAME not set, skipping auto-verification")
+        return
+    owner, repo = repo_full_name.split("/", 1) if "/" in repo_full_name else ("", repo_full_name)
+    event = {
+        "function": "verify_maintainer_request",
+        "actionGroup": "githubMaintainerVerification",
+        "parameters": [
+            {"name": "request_repo_owner", "value": owner},
+            {"name": "request_repo", "value": repo},
+            {"name": "issue_number", "value": str(issue_number)},
+        ],
+    }
+    try:
+        lambda_client = boto3.client("lambda")
+        lambda_client.invoke(
+            FunctionName=GITHUB_AGENT_FUNCTION_NAME,
+            InvocationType="Event",
+            Payload=json.dumps(event).encode(),
+        )
+        logger.info("Triggered maintainer verification for %s#%d", repo_full_name, issue_number)
+    except Exception as e:
+        logger.error("Failed to trigger maintainer verification: %s", e)
 
 
 def _post_to_slack(payload: Dict[str, Any]) -> None:
@@ -214,5 +243,25 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info("Slack notification sent for %s event", event_type)
     else:
         logger.info("No notification needed for %s event (action=%s)", event_type, payload.get("action", ""))
+
+    # Trigger maintainer verification when the bot is @mentioned
+    if event_type == "issues" and payload.get("action") == "opened":
+        issue = payload.get("issue", {})
+        body = issue.get("body", "") or ""
+        repo_full_name = payload.get("repository", {}).get("full_name", "")
+        if f"@{BOT_MENTION}" in body and repo_full_name == MAINTAINER_REQUEST_REPO:
+            issue_number = issue.get("number", 0)
+            if issue_number:
+                _trigger_maintainer_verification(repo_full_name, issue_number)
+
+    if event_type == "issue_comment" and payload.get("action") == "created":
+        comment = payload.get("comment", {})
+        issue = payload.get("issue", {})
+        body = comment.get("body", "") or ""
+        repo_full_name = payload.get("repository", {}).get("full_name", "")
+        if f"@{BOT_MENTION}" in body and repo_full_name == MAINTAINER_REQUEST_REPO:
+            issue_number = issue.get("number", 0)
+            if issue_number:
+                _trigger_maintainer_verification(repo_full_name, issue_number)
 
     return {"statusCode": 200, "body": "OK"}
