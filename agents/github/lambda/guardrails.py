@@ -47,17 +47,24 @@ def _classify_pr(title: str) -> Optional[str]:
 
 
 def _search_auto_prs(token: str, org: str, title_query: str) -> List[Dict]:
-    """Search for open PRs matching a title query across the org."""
-    query = f'org:{org} is:pr is:open "{title_query}" in:title'
-    items: List[Dict] = []
-    page = 1
-    while True:
-        data = get(token, "/search/issues", {"q": query, "per_page": 100, "page": page})
-        items.extend(data.get("items", []))
-        if len(items) >= data.get("total_count", 0) or not data.get("items"):
-            break
-        page += 1
-    return items
+    """Search for open PRs matching a title query across the org or user account."""
+    # GitHub search uses 'org:' for organizations and 'user:' for personal accounts.
+    # Try 'org:' first; if it returns nothing, retry with 'user:'.
+    # Use unquoted title words so "3.7.0" also matches "3.7.0.0" in titles;
+    # exact filtering happens in _classify_pr and _validate_pr.
+    for qualifier in [f"org:{org}", f"user:{org}"]:
+        query = f"{qualifier} is:pr is:open {title_query} in:title"
+        items: List[Dict] = []
+        page = 1
+        while True:
+            data = get(token, "/search/issues", {"q": query, "per_page": 100, "page": page})
+            items.extend(data.get("items", []))
+            if len(items) >= data.get("total_count", 0) or not data.get("items"):
+                break
+            page += 1
+        if items:
+            return items
+    return []
 
 
 def _get_ci_status(token: str, repo: str, sha: str) -> Dict[str, Any]:
@@ -200,8 +207,12 @@ def list_merge_candidates(token: str, version: str, org: str) -> Dict[str, Any]:
     candidates: List[Dict] = []
     seen = set()
 
+    # Version increment titles use 4-segment versions (e.g. 3.7.0.0)
+    # while release notes titles use 3-segment (e.g. 3.7.0). Search for both.
+    version_4 = version + ".0" if version.count(".") == 2 else version
     for title_query in [
         f"[AUTO] Increment version to {version}",
+        f"[AUTO] Increment version to {version_4}",
         f"[AUTO] Add release notes for {version}",
     ]:
         for item in _search_auto_prs(token, org, title_query):
@@ -262,17 +273,24 @@ def list_merge_candidates(token: str, version: str, org: str) -> Dict[str, Any]:
     }
 
 
-def bulk_merge(token: str, version: str, org: str) -> Dict[str, Any]:
+def bulk_merge(token: str, version: str, org: str, force: bool = False) -> Dict[str, Any]:
     """Re-validate all candidates and merge those passing all guardrails."""
     report = list_merge_candidates(token, version, org)
 
     merged, skipped, failed = [], [], []
     for c in report["candidates"]:
         if not c["all_passed"]:
-            failed_names = [n for n, chk in c["checks"].items() if not chk["passed"]]
-            skipped.append({"repo": c["repo"], "number": c["number"],
-                            "title": c["title"], "reason": f"Failed: {', '.join(failed_names)}"})
-            continue
+            failed_names = {n for n, chk in c["checks"].items() if not chk["passed"]}
+            ci_only_failure = failed_names <= {"ci_passing"}
+            if force and ci_only_failure:
+                logger.warning(
+                    "BULK_MERGE_FORCE %s#%d — CI override (force=true)",
+                    c["repo"], c["number"],
+                )
+            else:
+                skipped.append({"repo": c["repo"], "number": c["number"],
+                                "title": c["title"], "reason": f"Failed: {', '.join(sorted(failed_names))}"})
+                continue
         try:
             put(token, f"/repos/{c['repo']}/pulls/{c['number']}/merge", {"merge_method": "merge"})
             merged.append({"repo": c["repo"], "number": c["number"], "title": c["title"]})

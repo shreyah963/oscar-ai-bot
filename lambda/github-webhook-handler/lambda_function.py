@@ -162,13 +162,12 @@ def _build_slack_message(event_type: str, payload: Dict[str, Any]) -> Optional[D
         title = issue.get("title", "")
         labels = [l.get("name", "") for l in issue.get("labels", [])]
 
-        is_repo_request = title.startswith("[Repository Request]")
-        is_maintainer_request = "[GitHub Request] Add" in title and "maintainers" in title.lower()
+        is_maintainer_request = "[GitHub Request] Add" in title and "maintainer" in title.lower()
 
-        if not is_repo_request and not is_maintainer_request:
+        if not is_maintainer_request:
             return None
 
-        request_type = "Repository Creation" if is_repo_request else "Maintainer Addition"
+        request_type = "Maintainer Addition"
         return {
             "blocks": [
                 {

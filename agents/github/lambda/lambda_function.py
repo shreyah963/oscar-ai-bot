@@ -16,14 +16,26 @@ from authorizer import audit_log, is_write_operation, validate_org_scope
 from github_api import (
     add_collaborator,
     add_comment,
+    add_repo_collaborators,
+    add_repo_secret,
+    add_repo_team,
     bulk_comment,
+    create_standard_labels,
     get_external_contributors,
     get_new_maintainers,
     get_new_repositories,
+    get_repo_maintainers,
+
+    onboard_repo,
+    onboard_to_advisories,
+    parse_repo_request,
+    set_branch_protection,
     transfer_issue,
+    update_automation_app_config,
+    update_wss_scan_config,
     verify_maintainer_request,
 )
-from http_client import GitHubAPIError
+from http_client import GitHubAPIError, ORG, get
 from mcp_client import MCPClient
 from guardrails import (
     bulk_merge,
@@ -33,7 +45,6 @@ from guardrails import (
     validate_single_pr,
     validate_transfer_issue,
 )
-from http_client import ORG
 from response_builder import create_response
 
 logger = logging.getLogger(__name__)
@@ -98,11 +109,23 @@ TOOL_NAME_MAP = {
     # Community metrics (direct API)
     "get_new_maintainers": None,
     "get_new_repositories": None,
+    "get_repo_maintainers": None,
     "get_external_contributors": None,
     # Maintainer verification (direct API)
     "verify_maintainer_request": None,
     # Collaborator management (direct API)
     "add_collaborator": None,
+    # Repository onboarding (direct API)
+    "parse_repo_request": None,
+    "onboard_repo": None,
+    "set_branch_protection": None,
+    "add_repo_secret": None,
+    "add_repo_collaborators": None,
+    "add_repo_team": None,
+    "create_standard_labels": None,
+    "update_wss_scan_config": None,
+    "update_automation_app_config": None,
+    "onboard_to_advisories": None,
 }
 
 # Tools that need owner/repo injected
@@ -116,9 +139,14 @@ _NEEDS_OWNER = {
 _DIRECT_API_FUNCTIONS = {
     "transfer_issue", "add_comment", "bulk_comment",
     "list_merge_candidates", "bulk_merge_prs",
-    "get_new_maintainers", "get_new_repositories", "get_external_contributors",
+    "get_new_maintainers", "get_new_repositories", "get_repo_maintainers",
+    "get_external_contributors",
     "verify_maintainer_request",
     "add_collaborator",
+    "parse_repo_request",
+    "onboard_repo", "set_branch_protection", "add_repo_secret",
+    "add_repo_collaborators", "add_repo_team", "create_standard_labels",
+    "update_wss_scan_config", "update_automation_app_config", "onboard_to_advisories",
 }
 
 
@@ -167,6 +195,17 @@ def _transform_params(function_name: str, params: Dict[str, str]) -> Dict[str, A
     return args
 
 
+def _parse_issues_param(issues_str: str) -> list[tuple[str, int]]:
+    """Parse 'repo#number,repo#number,...' into a list of (repo, number) tuples."""
+    issues: list[tuple[str, int]] = []
+    for part in issues_str.split(","):
+        part = part.strip()
+        if "#" in part:
+            r, n = part.rsplit("#", 1)
+            issues.append((r.strip(), int(n.strip())))
+    return issues
+
+
 def _handle_direct_api(
     function_name: str, params: Dict[str, str], client: MCPClient, request_id: str,
 ) -> str:
@@ -193,14 +232,13 @@ def _handle_direct_api(
         return add_comment(token, ORG, repo, issue_number, body)
 
     elif function_name == "bulk_comment":
-        issue_numbers_str = params.get("issue_numbers", "")
-        issue_numbers = [int(n.strip()) for n in issue_numbers_str.split(",") if n.strip()]
+        issues = _parse_issues_param(params.get("issues", ""))
         body = params.get("body", "")
         logger.info(
-            "GITHUB [%s]: Direct API bulk_comment on %s issues %s",
-            request_id, repo, issue_numbers,
+            "GITHUB [%s]: Direct API bulk_comment on %s",
+            request_id, issues,
         )
-        return bulk_comment(token, ORG, repo, issue_numbers, body)
+        return bulk_comment(token, ORG, issues, body)
 
     elif function_name == "list_merge_candidates":
         version = params.get("version", "")
@@ -235,11 +273,12 @@ def _handle_direct_api(
                 "message": "Bulk merge cancelled. confirmed=false.",
             })
 
+        force = str(params.get("force", "")).strip().lower() in ("true", "1", "yes")
         logger.info(
-            "GITHUB [%s]: bulk_merge_prs version=%s org=%s",
-            request_id, version, org,
+            "GITHUB [%s]: bulk_merge_prs version=%s org=%s force=%s",
+            request_id, version, org, force,
         )
-        return bulk_merge(token, version, org)
+        return bulk_merge(token, version, org, force=force)
 
     elif function_name == "get_new_maintainers":
         since = params.get("since", "")
@@ -262,6 +301,15 @@ def _handle_direct_api(
             request_id, org, since, until, status,
         )
         return get_new_repositories(token, org, since, until, status)
+
+    elif function_name == "get_repo_maintainers":
+        repo = params.get("repo", "")
+        org = params.get("organization", ORG)
+        logger.info(
+            "GITHUB [%s]: get_repo_maintainers org=%s repo=%s",
+            request_id, org, repo,
+        )
+        return get_repo_maintainers(token, org, repo)
 
     elif function_name == "get_external_contributors":
         repo = params.get("repo", "")
@@ -294,6 +342,93 @@ def _handle_direct_api(
         )
         return add_collaborator(token, ORG, repo, username, permission)
 
+    # ---- Repository Onboarding ----
+
+    elif function_name == "parse_repo_request":
+        repo = params.get("repo", "")
+        issue_number = int(params.get("issue_number", "0"))
+        logger.info("GITHUB [%s]: parse_repo_request %s#%d", request_id, repo, issue_number)
+        full_repo = f"{ORG}/{repo}" if "/" not in repo else repo
+        issue = get(token, f"/repos/{full_repo}/issues/{issue_number}")
+        title = issue.get("title", "")
+        body = issue.get("body", "") or ""
+        result = parse_repo_request(title, body)
+        result["issue_number"] = issue_number
+        result["issue_url"] = issue.get("html_url", "")
+        return json.dumps(result)
+
+    elif function_name == "set_branch_protection":
+        repo = params.get("repo", "")
+        logger.info("GITHUB [%s]: set_branch_protection for %s", request_id, repo)
+        return set_branch_protection(token, ORG, repo)
+
+    elif function_name == "add_repo_secret":
+        repo = params.get("repo", "")
+        secret_name = params.get("secret_name", "")
+        secret_value = params.get("secret_value", "")
+        logger.info("GITHUB [%s]: add_repo_secret %s to %s", request_id, secret_name, repo)
+        return add_repo_secret(token, ORG, repo, secret_name, secret_value)
+
+    elif function_name == "add_repo_collaborators":
+        repo = params.get("repo", "")
+        maintainers_str = params.get("maintainers", "")
+        maintainers = [m.strip() for m in maintainers_str.split(",") if m.strip()]
+        logger.info("GITHUB [%s]: add_repo_collaborators to %s: %s", request_id, repo, maintainers)
+        return add_repo_collaborators(token, ORG, repo, maintainers)
+
+    elif function_name == "add_repo_team":
+        repo = params.get("repo", "")
+        team_slug = params.get("team_slug", "")
+        permission = params.get("permission", "triage")
+        logger.info(
+            "GITHUB [%s]: add_repo_team %s to %s with permission=%s",
+            request_id, team_slug, repo, permission,
+        )
+        return add_repo_team(token, ORG, repo, team_slug, permission)
+
+    elif function_name == "create_standard_labels":
+        repo = params.get("repo", "")
+        logger.info("GITHUB [%s]: create_standard_labels for %s", request_id, repo)
+        return create_standard_labels(token, ORG, repo)
+
+    elif function_name == "update_wss_scan_config":
+        repo = params.get("repo", "")
+        logger.info("GITHUB [%s]: update_wss_scan_config for %s", request_id, repo)
+        return update_wss_scan_config(token, ORG, repo)
+
+    elif function_name == "update_automation_app_config":
+        repo = params.get("repo", "")
+        logger.info("GITHUB [%s]: update_automation_app_config for %s", request_id, repo)
+        return update_automation_app_config(token, ORG, repo)
+
+    elif function_name == "onboard_to_advisories":
+        repo = params.get("repo", "")
+        is_bundle = str(params.get("is_bundle_component", "")).strip().lower() in ("true", "1", "yes")
+        logger.info(
+            "GITHUB [%s]: onboard_to_advisories for %s (bundle=%s)",
+            request_id, repo, is_bundle,
+        )
+        return onboard_to_advisories(token, ORG, repo, is_bundle)
+
+    elif function_name == "onboard_repo":
+        repo = params.get("repo", "")
+        maintainers_str = params.get("maintainers", "")
+        maintainers = [m.strip() for m in maintainers_str.split(",") if m.strip()]
+        is_bundle = str(params.get("is_bundle_component", "")).strip().lower() in ("true", "1", "yes")
+        logger.info("GITHUB [%s]: onboard_repo %s", request_id, repo)
+        return onboard_repo(
+            token=token,
+            owner=ORG,
+            repo=repo,
+            maintainers=maintainers,
+            backport_token=params.get("backport_token", ""),
+            codecov_token=params.get("codecov_token", ""),
+            op_service_account_token=params.get("op_service_account_token", ""),
+            is_bundle_component=is_bundle,
+            admin_team=params.get("admin_team", "admin"),
+            triage_team=params.get("triage_team", "triage"),
+        )
+
     raise ValueError(f"Unknown direct API function: {function_name}")
 
 
@@ -319,11 +454,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return create_response(event, {"error": org_error})
 
         # Log write operations at INFO level for auditability
+        _REDACTED_PARAMS = {"content", "secret_value", "backport_token", "codecov_token", "op_service_account_token"}
         if is_write_operation(function_name):
             logger.info(
                 "GITHUB [%s]: WRITE operation '%s' on repo '%s', params: %s",
                 request_id, function_name, params.get("repo", "N/A"),
-                json.dumps({k: v for k, v in params.items() if k != "content"}),
+                json.dumps({k: ("***" if k in _REDACTED_PARAMS else v) for k, v in params.items()}),
             )
 
         client = _get_mcp_client()
@@ -337,12 +473,27 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             force = str(params.get("force", "")).strip().lower() in ("true", "1", "yes")
             guardrail_result = validate_single_pr(token, ORG, repo, pr_number)
             if guardrail_result.get("is_auto_pr") and not guardrail_result.get("all_passed"):
-                if force:
+                checks = guardrail_result.get("checks", {})
+                failed = {n for n, c in checks.items() if not c.get("passed")}
+                ci_only_failure = failed == {"ci_passing"} or failed <= {"ci_passing"}
+                if force and ci_only_failure:
                     logger.warning(
-                        "GITHUB [%s]: merge_pr guardrails OVERRIDDEN (force=true) for %s#%d: %s",
+                        "GITHUB [%s]: merge_pr CI override (force=true) for %s#%d: %s",
                         request_id, repo, pr_number, guardrail_result.get("message", ""),
                     )
-                    audit_log(function_name, params, f"FORCE MERGE — guardrails overridden: {guardrail_result.get('message', '')}", True, request_id)
+                    audit_log(function_name, params, f"FORCE MERGE — CI checks overridden: {guardrail_result.get('message', '')}", True, request_id)
+                elif force and not ci_only_failure:
+                    non_ci_failed = failed - {"ci_passing"}
+                    logger.warning(
+                        "GITHUB [%s]: merge_pr force rejected — non-CI guardrails failed: %s",
+                        request_id, non_ci_failed,
+                    )
+                    guardrail_result["message"] = (
+                        f"Force merge denied. Only CI check failures can be overridden. "
+                        f"Other guardrails still failing: {', '.join(sorted(non_ci_failed))}"
+                    )
+                    audit_log(function_name, params, guardrail_result["message"], False, request_id)
+                    return create_response(event, guardrail_result)
                 else:
                     logger.warning(
                         "GITHUB [%s]: merge_pr blocked by guardrails for %s#%d",
@@ -365,11 +516,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 return create_response(event, guardrail_result)
 
         elif function_name == "bulk_comment":
-            repo = params.get("repo", "")
-            issue_numbers_str = params.get("issue_numbers", "")
-            issue_numbers = [int(n.strip()) for n in issue_numbers_str.split(",") if n.strip()]
+            issues_parsed = _parse_issues_param(params.get("issues", ""))
             body = params.get("body", "")
-            guardrail_result = validate_bulk_comment(token, ORG, repo, issue_numbers, body)
+            guardrail_result = validate_bulk_comment(token, ORG, issues_parsed, body)
             if not guardrail_result["all_passed"]:
                 logger.warning(
                     "GITHUB [%s]: bulk_comment blocked by guardrails: %d/%d issues blocked",

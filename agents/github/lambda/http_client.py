@@ -108,6 +108,16 @@ def post(token: str, path: str, json_body: Optional[Dict] = None) -> Any:
     return request("POST", f"{API_BASE}{path}", token, json_body=json_body)
 
 
+def patch(token: str, path: str, json_body: Optional[Dict] = None) -> Any:
+    """PATCH helper."""
+    return request("PATCH", f"{API_BASE}{path}", token, json_body=json_body)
+
+
+def delete(token: str, path: str) -> Any:
+    """DELETE helper."""
+    return request("DELETE", f"{API_BASE}{path}", token)
+
+
 class GitHubAPIError(Exception):
     """Error from the GitHub REST API."""
 

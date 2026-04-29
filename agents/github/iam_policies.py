@@ -35,11 +35,24 @@ def get_policies(account_id: str, region: str, env: str) -> List[iam.PolicyState
             ],
         ),
         # Bedrock model invocation for LLM-based parsing
+        # Cross-region inference profiles resolve to foundation models in any US region,
+        # so we wildcard the region for the foundation-model ARN.
         iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["bedrock:InvokeModel"],
             resources=[
-                f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+                "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+                f"arn:aws:bedrock:{region}:{account_id}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            ],
+        ),
+        # Read onboarding secrets from SSM Parameter Store
+        iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "ssm:GetParameter",
+            ],
+            resources=[
+                f"arn:aws:ssm:{region}:{account_id}:parameter/oscar/github/onboarding/*",
             ],
         ),
     ]

@@ -187,10 +187,10 @@ class TestGitHubAgentWriteOperations:
     """Validate the GitHub agent's write operation configuration."""
 
     def test_github_action_group_count(self):
-        """GitHub agent should have 7 action groups (2 deprecated, read, write, bulk merge, community metrics, maintainer verification)."""
+        """GitHub agent should have 6 action groups (read, write, bulk merge, community metrics, maintainer verification, repo onboarding)."""
         agent = GitHubAgent()
         groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
-        assert len(groups) == 7
+        assert len(groups) == 6
 
     def test_github_write_group_exists(self):
         """GitHub agent should have a write operations action group."""

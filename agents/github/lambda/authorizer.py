@@ -18,6 +18,9 @@ WRITE_FUNCTIONS = frozenset({
     "bulk_merge_prs",
     "verify_maintainer_request",
     "add_collaborator",
+    "onboard_repo", "set_branch_protection", "add_repo_secret",
+    "add_repo_collaborators", "add_repo_team", "create_standard_labels",
+    "update_wss_scan_config", "update_automation_app_config", "onboard_to_advisories",
 })
 
 

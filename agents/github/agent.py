@@ -14,6 +14,21 @@ GITHUB_ORG = os.environ.get("GITHUB_ORG", "opensearch-project")
 MAINTAINER_ORG = os.environ.get("MAINTAINER_ORG", "opensearch-project")
 MAINTAINER_REQUEST_REPO = os.environ.get("MAINTAINER_REQUEST_REPO", "opensearch-project/.github")
 
+_ONBOARDING_ENV_KEYS = (
+    "ADVISORIES_TARGET_REPO",
+    "ADVISORIES_TARGET_OWNER",
+    "ADVISORIES_BASE_BRANCH",
+    "ADVISORIES_PROJECTS_PATH",
+    "ADVISORIES_RELEASES_PATH",
+    "WSS_TARGET_REPO",
+    "WSS_TARGET_OWNER",
+    "WSS_FILE_PATH",
+    "AUTOMATION_APP_TARGET_REPO",
+    "AUTOMATION_APP_TARGET_OWNER",
+    "AUTOMATION_APP_FILE_PATH",
+    "ONBOARDING_SSM_PREFIX",
+)
+
 
 class GitHubAgent(OscarAgent):
 
@@ -36,6 +51,9 @@ class GitHubAgent(OscarAgent):
                 **{k: os.environ[k] for k in (
                     "VERSION_INCREMENT_AUTHOR",
                     "RELEASE_NOTES_AUTHOR",
+                    "CI_BOT_USERNAME",
+                    "LLM_MODEL_ID",
+                    *_ONBOARDING_ENV_KEYS,
                 ) if k in os.environ},
             },
         )

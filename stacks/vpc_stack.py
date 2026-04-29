@@ -14,7 +14,6 @@ and configures networking for Lambda functions with OpenSearch access.
 """
 
 import logging
-from typing import Any, Dict
 
 from aws_cdk import Stack
 from aws_cdk import aws_ec2 as ec2
@@ -45,11 +44,8 @@ class OscarVpcStack(Stack):
         self.vpc: ec2.IVpc = self._configure_vpc()
         self.lambda_security_group: ec2.ISecurityGroup = self._create_lambda_security_group()
 
-        # Create VPC endpoints for improved security and performance
-        # self.vpc_endpoints = self._create_vpc_endpoints()
-
-        # Configure network ACLs for additional security
-        self._configure_network_acls()
+        # Create VPC endpoints for STS and Secrets Manager
+        self._create_vpc_endpoints()
 
     def _configure_vpc(self) -> ec2.IVpc:
         """
@@ -65,20 +61,15 @@ class OscarVpcStack(Stack):
                 logging.info("VPC_ID environment variable not found. A new VPC will be created")
                 vpc: ec2.IVpc = ec2.Vpc(
                     self, "OscarVpc",
-                    max_azs=3,
-                    nat_gateways=1,
+                    max_azs=6,
                     subnet_configuration=[
                         ec2.SubnetConfiguration(
                             name="public",
                             subnet_type=ec2.SubnetType.PUBLIC,
-                            cidr_mask=24
-                        ),
-                        ec2.SubnetConfiguration(
-                            name="private",
-                            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
-                            cidr_mask=24
+                            map_public_ip_on_launch=True,
                         )
-                    ])
+                    ],
+                )
                 return vpc
             except Exception:
                 logger.error("Failed to create VPC with given CIDR.")
@@ -122,181 +113,45 @@ class OscarVpcStack(Stack):
             self, "OscarLambdaSecurityGroup",
             vpc=self.vpc,
             description="Security group for OSCAR Lambda functions with OpenSearch access",
-            allow_all_outbound=False  # We'll configure specific outbound rules
+            allow_all_outbound=True,
         )
 
-        # Add outbound rules for HTTPS access to AWS services
-        security_group.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(443),
-            description="HTTPS access for AWS services and OpenSearch"
+        # Inbound: all traffic from itself (Lambda <-> VPC endpoints)
+        security_group.add_ingress_rule(
+            peer=security_group,
+            connection=ec2.Port.all_traffic(),
         )
 
-        # Add outbound rule for HTTP (if needed for some services)
-        security_group.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(80),
-            description="HTTP access for external APIs"
-        )
-
-        # Add outbound rule for DNS resolution
-        security_group.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.udp(53),
-            description="DNS resolution"
-        )
-
-        security_group.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(53),
-            description="DNS resolution over TCP"
-        )
-
-        # Add specific rule for OpenSearch access (port 9200 and 9300 if needed)
-        security_group.add_egress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(9200),
-            description="OpenSearch HTTP access"
-        )
-
-        # Add rule for VPC endpoint access within VPC
-        security_group.add_egress_rule(
+        # Inbound: HTTPS from VPC CIDR
+        security_group.add_ingress_rule(
             peer=ec2.Peer.ipv4(self.vpc.vpc_cidr_block),
             connection=ec2.Port.tcp(443),
-            description="VPC endpoint access within VPC"
+            description=f"from {self.vpc.vpc_cidr_block}:443",
         )
 
-        # logger.info("Created Lambda security group with OpenSearch access rules")
         return security_group
 
-    def _create_vpc_endpoints(self) -> dict:
-        """
-        Create VPC endpoints for improved security and performance.
-        Returns:
-            Dictionary of created VPC endpoints
-        """
-        endpoints: Dict[str, Any] = {}
+    def _create_vpc_endpoints(self) -> None:
+        """Create STS and Secrets Manager VPC endpoints for Lambda access."""
+        subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
 
-        # S3 Gateway Endpoint (no additional charges)
-        try:
-            # Try private subnets first, fallback to public if needed
-            subnet_selection = None
-            try:
-                # Check if private subnets exist
-                private_subnets = self.vpc.select_subnets(
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-                ).subnets
-                if private_subnets:
-                    subnet_selection = [ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)]
-            except:
-                pass
-
-            if not subnet_selection:
-                # Use public subnets if no private subnets available
-                subnet_selection = [ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)]
-
-            s3_endpoint = ec2.GatewayVpcEndpoint(
-                self, "S3VpcEndpoint",
-                vpc=self.vpc,
-                service=ec2.GatewayVpcEndpointAwsService.S3,
-                subnets=subnet_selection
-            )
-            endpoints["s3"] = s3_endpoint
-            logger.info("Created S3 VPC Gateway Endpoint")
-        except Exception as e:
-            logger.warning(f"Failed to create S3 VPC endpoint: {e}")
-
-        # DynamoDB Gateway Endpoint (no additional charges)
-        try:
-            # Use same subnet selection logic
-            subnet_selection = None
-            try:
-                private_subnets = self.vpc.select_subnets(
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-                ).subnets
-                if private_subnets:
-                    subnet_selection = [ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)]
-            except:
-                pass
-
-            if not subnet_selection:
-                subnet_selection = [ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)]
-
-            dynamodb_endpoint = ec2.GatewayVpcEndpoint(
-                self, "DynamoDBVpcEndpoint",
-                vpc=self.vpc,
-                service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-                subnets=subnet_selection
-            )
-            endpoints["dynamodb"] = dynamodb_endpoint
-            logger.info("Created DynamoDB VPC Gateway Endpoint")
-        except Exception as e:
-            logger.warning(f"Failed to create DynamoDB VPC endpoint: {e}")
-
-        # Create security group for interface endpoints
-        endpoint_security_group = ec2.SecurityGroup(
-            self, "VpcEndpointSecurityGroup",
+        ec2.InterfaceVpcEndpoint(
+            self, "STSVpcEndpoint",
             vpc=self.vpc,
-            description="Security group for VPC interface endpoints",
-            security_group_name="oscar-vpc-endpoints-sg"
+            service=ec2.InterfaceVpcEndpointAwsService.STS,
+            subnets=subnet_selection,
+            security_groups=[self.lambda_security_group],
+            private_dns_enabled=True,
         )
 
-        # Allow HTTPS access from Lambda security group
-        endpoint_security_group.add_ingress_rule(
-            peer=ec2.Peer.security_group_id(self.lambda_security_group.security_group_id),
-            connection=ec2.Port.tcp(443),
-            description="HTTPS access from Lambda functions"
+        ec2.InterfaceVpcEndpoint(
+            self, "SecretsManagerVpcEndpoint",
+            vpc=self.vpc,
+            service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+            subnets=subnet_selection,
+            security_groups=[self.lambda_security_group],
+            private_dns_enabled=True,
         )
-
-        # Determine subnet selection for interface endpoints
-        interface_subnet_selection = None
-        try:
-            private_subnets = self.vpc.select_subnets(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ).subnets
-            if private_subnets:
-                interface_subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)
-        except:
-            pass
-
-        if not interface_subnet_selection:
-            # Use public subnets if no private subnets available
-            interface_subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
-
-        # Secrets Manager Interface Endpoint
-        try:
-            secrets_endpoint = ec2.InterfaceVpcEndpoint(
-                self, "SecretsManagerVpcEndpoint",
-                vpc=self.vpc,
-                service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-                subnets=interface_subnet_selection,
-                security_groups=[endpoint_security_group],
-                private_dns_enabled=False  # Disabled due to existing DNS conflicts
-            )
-            endpoints["secrets_manager"] = secrets_endpoint
-            logger.info("Created Secrets Manager VPC Interface Endpoint (private DNS disabled)")
-        except Exception as e:
-            logger.warning(f"Failed to create Secrets Manager VPC endpoint: {e}")
-
-        # STS Interface Endpoint (for assume role operations)
-        try:
-            sts_endpoint = ec2.InterfaceVpcEndpoint(
-                self, "STSVpcEndpoint",
-                vpc=self.vpc,
-                service=ec2.InterfaceVpcEndpointAwsService.STS,
-                subnets=interface_subnet_selection,
-                security_groups=[endpoint_security_group],
-                private_dns_enabled=False  # Disabled due to existing DNS conflicts
-            )
-            endpoints["sts"] = sts_endpoint
-            logger.info("Created STS VPC Interface Endpoint (private DNS disabled)")
-        except Exception as e:
-            logger.warning(f"Failed to create STS VPC endpoint: {e}")
-
-        # Note: Lambda VPC endpoint is not available as a standard service
-        # Lambda functions can communicate through other means
-
-        return endpoints
 
     def _configure_network_acls(self) -> None:
         """
