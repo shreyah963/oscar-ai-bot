@@ -4,10 +4,11 @@ This document contains a list of maintainers in this repo. See [opensearch-proje
 
 ## Current Maintainers
 
-| Maintainer            | GitHub ID                                           | Affiliation |
-|-----------------------|-----------------------------------------------------|-------------|
-| Peter Zhu             | [peterzhuamazon](https://github.com/peterzhuamazon) | Amazon      |
-| Divyam Sengar         | [DivyamSengar](https://github.com/DivyamSengar)     | Community   |
-| Saurabh Singh         | [getsaurabh02](https://github.com/getsaurabh02)     | Amazon      |
-| Sayali Gaikawad       | [gaiksaya](https://github.com/gaiksaya)             | Amazon      |
+| Maintainer      | GitHub ID                                          | Affiliation |
+|-----------------|----------------------------------------------------|-------------|
+| Peter Zhu       | [peterzhuamazon](https://github.com/peterzhuamazon)| Amazon      |
+| Divyam Sengar   | [DivyamSengar](https://github.com/DivyamSengar)    | Community   |
+| Saurabh Singh   | [getsaurabh02](https://github.com/getsaurabh02)    | Amazon      |
+| Sayali Gaikawad | [gaiksaya](https://github.com/gaiksaya)            | Amazon      |
+| Shreya Bhatta   | [shreyah963](https://github.com/shreyah963)        | Amazon      |
 
