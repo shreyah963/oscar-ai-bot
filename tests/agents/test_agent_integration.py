@@ -168,15 +168,15 @@ class TestAgentStackWiring:
         assert github_fn is not metrics_fn
 
     def test_lambda_function_count(self, stacks):
-        """Should be 3 agent entries + 2 core = 5 keys in lambda_functions dict."""
-        # 3 agents + supervisor-agent + communication-handler = 5 entries
-        assert len(stacks.lambda_functions) == 5
+        """Should be 3 agent entries + 3 core = 6 keys in lambda_functions dict."""
+        # 3 agents + supervisor-agent + communication-handler + github-webhook-handler = 6 entries
+        assert len(stacks.lambda_functions) == 6
 
     def test_lambda_template_function_count(self, stacks):
-        """CloudFormation template should have 5 Lambda functions
-        (supervisor + communication + jenkins + metrics + github)."""
+        """CloudFormation template should have 6 Lambda functions
+        (supervisor + communication + github-webhook-handler + jenkins + metrics + github)."""
         template = Template.from_stack(stacks)
-        template.resource_count_is("AWS::Lambda::Function", 5)
+        template.resource_count_is("AWS::Lambda::Function", 6)
 
 
 # ---------------------------------------------------------------------------
@@ -187,10 +187,10 @@ class TestGitHubAgentWriteOperations:
     """Validate the GitHub agent's write operation configuration."""
 
     def test_github_action_group_count(self):
-        """GitHub agent should have 5 action groups (2 deprecated, read, write, bulk merge)."""
+        """GitHub agent should have 6 action groups (2 deprecated, read, write, bulk merge, community metrics)."""
         agent = GitHubAgent()
         groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
-        assert len(groups) == 5
+        assert len(groups) == 6
 
     def test_github_write_group_exists(self):
         """GitHub agent should have a write operations action group."""
