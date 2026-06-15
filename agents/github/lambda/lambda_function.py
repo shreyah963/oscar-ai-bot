@@ -12,12 +12,12 @@ from typing import Any, Dict
 
 import boto3
 from authorizer import audit_log, is_write_operation, validate_org_scope
-from github_api import (add_comment, bulk_comment, get_repo_maintainers,
-                        transfer_issue)
+from github_api import (add_comment, bulk_comment, create_branch,
+                        create_tag, get_repo_maintainers, transfer_issue)
 from guardrails import (bulk_merge, list_merge_candidates,
                         validate_bulk_comment, validate_comment,
                         validate_single_pr, validate_transfer_issue)
-from http_client import ORG, GitHubAPIError
+from http_client import ORG, GitHubAPIError, get
 from mcp_client import MCPClient
 from oscar_shared.approval_guard import validate_two_person_approval
 from response_builder import create_response
@@ -83,6 +83,9 @@ TOOL_NAME_MAP = {
     "bulk_merge_prs": None,
     # Maintainer lookup (direct API)
     "get_repo_maintainers": None,
+    # Tag and branch operations (direct API)
+    "create_tag": None,
+    "create_branch": None,
 }
 
 # Tools that need owner/repo injected
@@ -96,7 +99,7 @@ _NEEDS_OWNER = {
 _DIRECT_API_FUNCTIONS = {
     "transfer_issue", "add_comment", "bulk_comment",
     "list_merge_candidates", "bulk_merge_prs",
-    "get_repo_maintainers",
+    "get_repo_maintainers", "create_tag", "create_branch",
 }
 
 
@@ -143,6 +146,19 @@ def _transform_params(function_name: str, params: Dict[str, str]) -> Dict[str, A
         args["state_reason"] = reason
 
     return args
+
+
+def _resolve_commit_sha(token: str, repo: str, commit_sha: str) -> str:
+    """Resolve a commit SHA: expand abbreviated SHAs and default to HEAD of default branch."""
+    if not commit_sha:
+        repo_info = get(token, f"/repos/{ORG}/{repo}")
+        default_branch = repo_info.get("default_branch", "main")
+        branch_info = get(token, f"/repos/{ORG}/{repo}/branches/{default_branch}")
+        return branch_info["commit"]["sha"]
+    if len(commit_sha) < 40:
+        commit_info = get(token, f"/repos/{ORG}/{repo}/commits/{commit_sha}")
+        return commit_info["sha"]
+    return commit_sha
 
 
 def _handle_direct_api(
@@ -254,6 +270,42 @@ def _handle_direct_api(
             request_id, org, repo,
         )
         return get_repo_maintainers(token, org, repo)
+
+    elif function_name == "create_tag":
+        repo = params.get("repo", "")
+        tag_name = params.get("tag_name", "")
+        commit_sha = _resolve_commit_sha(token, repo, params.get("commit_sha", ""))
+
+        enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
+        approval_error = validate_two_person_approval(
+            params, enable_2pr, f'action=create_tag, repo={repo}, tag={tag_name}',
+        )
+        if approval_error:
+            return json.dumps(approval_error)
+
+        logger.info(
+            "GITHUB [%s]: create_tag repo=%s tag=%s commit=%s",
+            request_id, repo, tag_name, commit_sha,
+        )
+        return create_tag(token, ORG, repo, tag_name, commit_sha)
+
+    elif function_name == "create_branch":
+        repo = params.get("repo", "")
+        branch_name = params.get("branch_name", "")
+        commit_sha = _resolve_commit_sha(token, repo, params.get("commit_sha", ""))
+
+        enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
+        approval_error = validate_two_person_approval(
+            params, enable_2pr, f'action=create_branch, repo={repo}, branch={branch_name}',
+        )
+        if approval_error:
+            return json.dumps(approval_error)
+
+        logger.info(
+            "GITHUB [%s]: create_branch repo=%s branch=%s commit=%s",
+            request_id, repo, branch_name, commit_sha,
+        )
+        return create_branch(token, ORG, repo, branch_name, commit_sha)
 
     raise ValueError(f"Unknown direct API function: {function_name}")
 
