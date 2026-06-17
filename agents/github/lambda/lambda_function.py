@@ -207,7 +207,7 @@ def _handle_direct_api(
 
         # Two-person review (only when ENABLE_2PR is on)
         enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-        approval_error = validate_two_person_approval(params, enable_2pr, f'action=bulk_comment, issues={issue_targets}')
+        approval_error = validate_two_person_approval(params, enable_2pr, f'action=bulk_comment, issues={issue_targets}', github_token=token)
         if approval_error:
             return json.dumps(approval_error)
 
@@ -252,7 +252,7 @@ def _handle_direct_api(
 
         # Two-person review (only when ENABLE_2PR is on)
         enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-        approval_error = validate_two_person_approval(params, enable_2pr, f'action=bulk_merge_prs, version={version}')
+        approval_error = validate_two_person_approval(params, enable_2pr, f'action=bulk_merge_prs, version={version}', github_token=token)
         if approval_error:
             return json.dumps(approval_error)
 
@@ -278,7 +278,7 @@ def _handle_direct_api(
 
         enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
         approval_error = validate_two_person_approval(
-            params, enable_2pr, f'action=create_tag, repo={repo}, tag={tag_name}',
+            params, enable_2pr, f'action=create_tag, repo={repo}, tag={tag_name}', github_token=token,
         )
         if approval_error:
             return json.dumps(approval_error)
@@ -296,7 +296,7 @@ def _handle_direct_api(
 
         enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
         approval_error = validate_two_person_approval(
-            params, enable_2pr, f'action=create_branch, repo={repo}, branch={branch_name}',
+            params, enable_2pr, f'action=create_branch, repo={repo}, branch={branch_name}', github_token=token,
         )
         if approval_error:
             return json.dumps(approval_error)
@@ -351,7 +351,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             # Two-person review (only when ENABLE_2PR is on)
             enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-            approval_error = validate_two_person_approval(params, enable_2pr, f'action=merge_pr, repo={repo}, pr={pr_number}')
+            approval_error = validate_two_person_approval(params, enable_2pr, f'action=merge_pr, repo={repo}, pr={pr_number}', github_token=token)
             if approval_error:
                 return create_response(event, json.dumps(approval_error))
 

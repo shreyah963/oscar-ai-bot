@@ -43,4 +43,16 @@ def get_policies(account_id: str, region: str, env: str) -> List[iam.PolicyState
                 f"arn:aws:bedrock:{region}:{account_id}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
             ],
         ),
+        # DynamoDB read for identity table (2PR admin team lookup)
+        iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+            ],
+            resources=[
+                f"arn:aws:dynamodb:{region}:{account_id}:table/oscar-identity-*",
+                f"arn:aws:dynamodb:{region}:{account_id}:table/oscar-identity-*/index/*",
+            ],
+        ),
     ]

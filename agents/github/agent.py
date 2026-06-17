@@ -31,6 +31,10 @@ class GitHubAgent(OscarAgent):
                 "MCP_READ_ONLY": "false",
                 "GITHUB_ORG": GITHUB_ORG,
                 "ENABLE_2PR": os.environ.get("ENABLE_2PR", "false"),
+                "ENVIRONMENT": os.environ.get("ENVIRONMENT", "dev"),
+                "SLACK_WORKSPACE_IDS": os.environ.get("SLACK_WORKSPACE_IDS", ""),
+                "ADMIN_TEAM_ORG": os.environ.get("ADMIN_TEAM_ORG", "oscar-test-org-shreyah963"),
+                "ADMIN_TEAM_SLUG": os.environ.get("ADMIN_TEAM_SLUG", "admin"),
             },
         )
 

@@ -5,19 +5,76 @@
 Two-person approval guard.
 
 Shared validation logic used by any Lambda that enforces ENABLE_2PR.
+Approver must be a member of the GitHub admin team, resolved via DynamoDB identity mapping.
 """
 
 import logging
+import os
 from typing import Any, Dict, Optional
+
+import boto3
+import requests
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+IDENTITY_TABLE_PREFIX = "oscar-identity"
+ADMIN_TEAM_SLUG = os.environ.get("ADMIN_TEAM_SLUG", "admin")
+ADMIN_TEAM_ORG = os.environ.get("ADMIN_TEAM_ORG", "oscar-test-org-shreyah963")
+
+_dynamodb = None
+
+
+def _get_dynamodb():
+    global _dynamodb
+    if _dynamodb is None:
+        _dynamodb = boto3.resource("dynamodb")
+    return _dynamodb
+
+
+def _lookup_github_handle(slack_user_id: str) -> Optional[str]:
+    """Look up a Slack user's GitHub handle from the identity table."""
+    environment = os.environ.get("ENVIRONMENT", "dev")
+    workspace_ids = os.environ.get("SLACK_WORKSPACE_IDS", "").split(",")
+
+    dynamodb = _get_dynamodb()
+    for workspace_id in workspace_ids:
+        workspace_id = workspace_id.strip()
+        if not workspace_id:
+            continue
+        table_name = f"{IDENTITY_TABLE_PREFIX}-{workspace_id}-{environment}"
+        table = dynamodb.Table(table_name)
+        resp = table.query(
+            IndexName="slack-user-index",
+            KeyConditionExpression="slack_user_id = :sid",
+            ExpressionAttributeValues={":sid": slack_user_id},
+        )
+        items = resp.get("Items", [])
+        for item in items:
+            if item.get("status") == "active":
+                return item.get("github_handle")
+    return None
+
+
+def _is_admin_team_member(github_token: str, github_handle: str) -> bool:
+    """Check if a GitHub user is a member of the admin team."""
+    url = f"https://api.github.com/orgs/{ADMIN_TEAM_ORG}/teams/{ADMIN_TEAM_SLUG}/members/{github_handle}"
+    resp = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json",
+        },
+        timeout=10,
+    )
+    return resp.status_code == 204
 
 
 def validate_two_person_approval(
     params: Dict[str, Any],
     enable_2pr: bool,
     action_label: str,
+    github_token: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Validate two-person approval if the feature flag is enabled.
 
@@ -25,6 +82,7 @@ def validate_two_person_approval(
         params: Request parameters dict (must contain requester_user_id, approver_user_id).
         enable_2pr: Whether the ENABLE_2PR flag is active.
         action_label: Human-readable label for logs (e.g. 'job=docker-scan', 'channel=C123').
+        github_token: GitHub API token for team membership checks.
 
     Returns:
         None if validation passes (or flag is off). Otherwise a dict with
@@ -51,8 +109,34 @@ def validate_two_person_approval(
             ),
         }
 
+    # Admin team membership check (only when github_token is provided)
+    approver_github = None
+    if github_token:
+        approver_github = _lookup_github_handle(approver_user_id.strip())
+        if not approver_github:
+            return {
+                'status': 'error',
+                'message': (
+                    f'SECURITY ERROR: Approver ({approver_user_id.strip()}) has no linked GitHub account. '
+                    f'They must run /oscar-link-github first.'
+                ),
+            }
+
+        if not _is_admin_team_member(github_token, approver_github):
+            return {
+                'status': 'error',
+                'message': (
+                    f'SECURITY ERROR: Approver ({approver_github}) is not a member of the '
+                    f'{ADMIN_TEAM_ORG}/{ADMIN_TEAM_SLUG} team. Only admin team members can approve.'
+                ),
+            }
+
+    approver_label = approver_user_id.strip()
+    if approver_github:
+        approver_label = f'{approver_user_id.strip()} (github={approver_github})'
+
     logger.info(
         f'TWO_PERSON_APPROVAL: requester={requester_user_id.strip()}, '
-        f'approver={approver_user_id.strip()}, {action_label}'
+        f'approver={approver_label}, {action_label}'
     )
     return None
