@@ -343,12 +343,14 @@ def _validate_admin_only(session_attributes: Dict[str, str], action_label: str) 
 def _validate_maintainer_authorization(
     token: str, repo: str, session_attributes: Dict[str, str], action_label: str,
 ) -> Optional[Dict[str, Any]]:
-    """Validate requester (and approver if present) are admins or maintainers of the repo."""
+    """Validate requester is an admin or maintainer of the specific repo.
+
+    Approver authorization is handled by the 2PR guard (auth_policy="maintainer"
+    requires an admin approver), so this function only checks the requester.
+    """
     attrs = session_attributes or {}
     requester_id = attrs.get("requester_user_id", "")
-    approver_id = attrs.get("approver_user_id", "")
     requester_admin = attrs.get("requester_is_admin", "False")
-    approver_admin = attrs.get("approver_is_admin", "False")
 
     if not requester_id:
         return {
@@ -368,18 +370,9 @@ def _validate_maintainer_authorization(
             ),
         }
 
-    if approver_id and not _is_admin_or_maintainer(token, repo, approver_id, approver_admin):
-        return {
-            "status": "error",
-            "message": (
-                f"AUTHORIZATION ERROR: Approver is not an admin or maintainer of {repo}. "
-                f"Only admins and repo maintainers can approve {action_label}."
-            ),
-        }
-
     logger.info(
-        "MAINTAINER_AUTH: %s authorized — requester=%s approver=%s repo=%s",
-        action_label, requester_id, approver_id or "N/A", repo,
+        "MAINTAINER_AUTH: %s authorized — requester=%s repo=%s",
+        action_label, requester_id, repo,
     )
     return None
 
