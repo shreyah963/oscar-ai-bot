@@ -46,13 +46,24 @@ class TestExtractQuery:
 
 class TestBuildIdentityAttributes:
 
+    def _mock_identity(self, mp, github_handle="gh-user", is_org_maintainer=False):
+        """Patch _get_identity_record to return a canned identity."""
+        mp._get_identity_record = Mock(return_value={
+            "github_handle": github_handle,
+            "is_org_maintainer": is_org_maintainer,
+            "status": "active",
+        })
+
     def test_first_message_sets_requester(self):
         storage = Mock()
         storage.get_context.return_value = None
         mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_FIRST')
         assert result['current_user_id'] == 'U_FIRST'
         assert result['requester_user_id'] == 'U_FIRST'
+        assert result['requester_github_handle'] == 'gh-user'
+        assert result['requester_tier'] == 'contributor'
         assert 'approver_user_id' not in result
 
     def test_pending_approval_different_user_sets_approver(self):
@@ -60,16 +71,19 @@ class TestBuildIdentityAttributes:
         storage = Mock()
         storage.get_context.return_value = {'pending_approval_requester': 'U_REQ'}
         mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_APP')
         assert result['current_user_id'] == 'U_APP'
         assert result['requester_user_id'] == 'U_REQ'
         assert result['approver_user_id'] == 'U_APP'
+        assert 'approver_github_handle' in result
 
     def test_pending_approval_same_user_no_approver(self):
         """The same user replying after their own confirmation prompt gets no approver."""
         storage = Mock()
         storage.get_context.return_value = {'pending_approval_requester': 'U_SAME'}
         mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_SAME')
         assert result['current_user_id'] == 'U_SAME'
         assert result['requester_user_id'] == 'U_SAME'
@@ -80,6 +94,7 @@ class TestBuildIdentityAttributes:
         storage = Mock()
         storage.get_context.return_value = {'thread_user_ids': ['U_OTHER', 'U_CURRENT']}
         mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_CURRENT')
         assert result['current_user_id'] == 'U_CURRENT'
         assert result['requester_user_id'] == 'U_CURRENT'
@@ -91,9 +106,9 @@ class TestBuildIdentityAttributes:
         storage = Mock()
         storage.get_context.return_value = {
             'thread_user_ids': ['U_BOB', 'U_ALICE'],
-            # No pending_approval_requester — no confirmation prompt has been shown
         }
         mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_ALICE')
         assert result['requester_user_id'] == 'U_ALICE'
         assert 'approver_user_id' not in result
@@ -285,6 +300,7 @@ class TestProcessMessageContextIntegration:
             slack_client=slack,
         )
         mp._has_identity_mapping = Mock(return_value=True)
+        mp._get_identity_record = Mock(return_value={"github_handle": "gh-user", "is_org_maintainer": False})
         say = Mock()
         # message_ts != thread_ts triggers parent context fetch
         mp.process_message('C_ALLOWED', 'thread_ts', 'U_ADMIN', '<@BOT> hello', say, message_ts='msg_ts')
@@ -312,6 +328,7 @@ class TestProcessMessage:
             timeout_handler=timeout_handler,
         )
         mp._has_identity_mapping = Mock(return_value=True)
+        mp._get_identity_record = Mock(return_value={"github_handle": "gh-user", "is_org_maintainer": False})
         say = Mock()
         return mp, storage, say
 
@@ -508,6 +525,7 @@ class TestProcessMessageIdentityGate:
 
         mp = _make_processor(storage=storage, reaction_manager=Mock(), timeout_handler=timeout_handler)
         mp._has_identity_mapping = Mock(return_value=has_mapping)
+        mp._get_identity_record = Mock(return_value={"github_handle": "gh-user", "is_org_maintainer": False})
         mp._handle_link_github_via_dm = Mock()
         return mp
 

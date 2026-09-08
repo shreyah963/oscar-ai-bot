@@ -115,7 +115,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
 
         # Admin flags present but no user IDs — 2PR rejects
         result = mod.lambda_handler(_bulk_merge_event(session_attrs={
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -137,7 +137,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
 
         event = _bulk_merge_event(session_attrs={
             'requester_user_id': 'U_SAME', 'approver_user_id': 'U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -161,7 +161,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
 
         event = _bulk_merge_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -184,7 +184,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
 
         # Admin requester, no approver — should succeed (2PR off, admin check passes)
         result = mod.lambda_handler(_bulk_merge_event(session_attrs={
-            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True',
+            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -205,7 +205,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
         mod, mock_guardrails = _load_lambda_handler()
 
         result = mod.lambda_handler(_bulk_merge_event(session_attrs={
-            'requester_user_id': 'U_NON_ADMIN', 'requester_is_admin': 'False',
+            'requester_user_id': 'U_NON_ADMIN', 'requester_is_admin': 'False', 'requester_tier': 'contributor',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -228,7 +228,7 @@ class TestTwoPersonApprovalBulkMerge(unittest.TestCase):
 
         event = _bulk_merge_event(session_attrs={
             'requester_user_id': 'U_SAME ', 'approver_user_id': ' U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -271,7 +271,7 @@ class TestTwoPersonApprovalMergePr(unittest.TestCase):
         }
 
         result = mod.lambda_handler(_merge_pr_event(session_attrs={
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -295,7 +295,7 @@ class TestTwoPersonApprovalMergePr(unittest.TestCase):
 
         event = _merge_pr_event(session_attrs={
             'requester_user_id': 'U_SAME', 'approver_user_id': 'U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -325,7 +325,7 @@ class TestTwoPersonApprovalMergePr(unittest.TestCase):
 
         event = _merge_pr_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -353,7 +353,7 @@ class TestTwoPersonApprovalMergePr(unittest.TestCase):
         })
 
         result = mod.lambda_handler(_merge_pr_event(session_attrs={
-            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True',
+            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -391,7 +391,7 @@ class TestTwoPersonApprovalBulkComment(unittest.TestCase):
         mock_bulk_comment = sys.modules['github_api'].bulk_comment
 
         result = mod.lambda_handler(_bulk_comment_event(session_attrs={
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -414,7 +414,7 @@ class TestTwoPersonApprovalBulkComment(unittest.TestCase):
 
         event = _bulk_comment_event(session_attrs={
             'requester_user_id': 'U_SAME', 'approver_user_id': 'U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -439,7 +439,7 @@ class TestTwoPersonApprovalBulkComment(unittest.TestCase):
 
         event = _bulk_comment_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_tier': 'admin',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -463,7 +463,7 @@ class TestTwoPersonApprovalBulkComment(unittest.TestCase):
         mock_bulk_comment.return_value = json.dumps({'status': 'success', 'commented': 3})
 
         result = mod.lambda_handler(_bulk_comment_event(session_attrs={
-            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True',
+            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True', 'requester_tier': 'admin',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -501,7 +501,7 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
         mock_create_ref = sys.modules['github_api'].create_ref
 
         result = mod.lambda_handler(_create_tag_event(session_attrs={
-            'requester_is_admin': 'True',
+            'requester_is_admin': 'True', 'requester_is_maintainer': 'True',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -524,7 +524,7 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
 
         event = _create_tag_event(session_attrs={
             'requester_user_id': 'U_SAME', 'approver_user_id': 'U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_is_maintainer': 'True',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -551,7 +551,7 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
 
         event = _create_tag_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_is_maintainer': 'True',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -577,7 +577,7 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
         })
 
         result = mod.lambda_handler(_create_tag_event(session_attrs={
-            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True',
+            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True', 'requester_is_maintainer': 'True',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -587,7 +587,7 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
     @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test-secret'})
     @patch('boto3.client')
     def test_non_admin_non_maintainer_rejected(self, mock_boto):
-        """Non-admin user without maintainer status is rejected."""
+        """Non-admin user without maintainer status is rejected at group gate."""
         mock_boto.return_value.get_secret_value.return_value = {
             'SecretString': json.dumps({
                 'GITHUB_APP_ID': '123',
@@ -597,19 +597,18 @@ class TestTwoPersonApprovalCreateTag(unittest.TestCase):
         }
         mod, _ = _load_lambda_handler()
         mock_create_ref = sys.modules['github_api'].create_ref
-        # Mock identity table to return no mapping
-        mod._get_identity_table = lambda: None
 
         event = _create_tag_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
             'requester_is_admin': 'False', 'approver_is_admin': 'True',
+            'requester_is_maintainer': 'False',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
         self.assertEqual(parsed['status'], 'error')
         self.assertIn('AUTHORIZATION ERROR', parsed['message'])
-        self.assertIn('not an admin or maintainer', parsed['message'])
+        self.assertIn('maintainer', parsed['message'])
         mock_create_ref.assert_not_called()
 
 
@@ -643,7 +642,7 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
         mock_create_ref = sys.modules['github_api'].create_ref
 
         result = mod.lambda_handler(_create_branch_event(session_attrs={
-            'requester_is_admin': 'True',
+            'requester_is_admin': 'True', 'requester_is_maintainer': 'True',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -666,7 +665,7 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
 
         event = _create_branch_event(session_attrs={
             'requester_user_id': 'U_SAME', 'approver_user_id': 'U_SAME',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_is_maintainer': 'True',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -693,7 +692,7 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
 
         event = _create_branch_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
-            'requester_is_admin': 'True', 'approver_is_admin': 'True',
+            'requester_is_admin': 'True', 'approver_is_admin': 'True', 'requester_is_maintainer': 'True',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
@@ -719,7 +718,7 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
         })
 
         result = mod.lambda_handler(_create_branch_event(session_attrs={
-            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True',
+            'requester_user_id': 'U_ADMIN', 'requester_is_admin': 'True', 'requester_is_maintainer': 'True',
         }), None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
@@ -729,7 +728,7 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
     @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test-secret'})
     @patch('boto3.client')
     def test_non_admin_non_maintainer_rejected(self, mock_boto):
-        """Non-admin user without maintainer status is rejected."""
+        """Non-admin user without maintainer status is rejected at group gate."""
         mock_boto.return_value.get_secret_value.return_value = {
             'SecretString': json.dumps({
                 'GITHUB_APP_ID': '123',
@@ -739,18 +738,18 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
         }
         mod, _ = _load_lambda_handler()
         mock_create_ref = sys.modules['github_api'].create_ref
-        mod._get_identity_table = lambda: None
 
         event = _create_branch_event(session_attrs={
             'requester_user_id': 'U_REQ', 'approver_user_id': 'U_APP',
             'requester_is_admin': 'False', 'approver_is_admin': 'True',
+            'requester_is_maintainer': 'False',
         })
         result = mod.lambda_handler(event, None)
         body = result['response']['functionResponse']['responseBody']['TEXT']['body']
         parsed = json.loads(body)
         self.assertEqual(parsed['status'], 'error')
         self.assertIn('AUTHORIZATION ERROR', parsed['message'])
-        self.assertIn('not an admin or maintainer', parsed['message'])
+        self.assertIn('maintainer', parsed['message'])
         mock_create_ref.assert_not_called()
 
 

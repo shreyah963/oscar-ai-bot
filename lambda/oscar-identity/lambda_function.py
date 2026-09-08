@@ -66,9 +66,15 @@ def _get_table() -> Optional[object]:
     return dynamodb.Table(IDENTITY_TABLE_NAME)
 
 
+METRICS_ROLE_ARN = os.environ.get("METRICS_ROLE_ARN", "")
+METRICS_CLUSTER_ENDPOINT = os.environ.get("METRICS_CLUSTER_ENDPOINT", "")
+
+
 def lambda_handler(event, context):
-    # Route: EventBridge scheduled event → run validation
-    if event.get("source") == "aws.events":
+    # Route: EventBridge scheduled events
+    if event.get("source") == "aws.events" or event.get("action"):
+        if event.get("action") == "maintainer_sync":
+            return _handle_maintainer_sync()
         return _handle_validation()
 
     # Route: API Gateway OAuth callback
@@ -149,6 +155,104 @@ def lambda_handler(event, context):
     logger.info(f"IDENTITY_LINKED: slack_user={slack_user_id} workspace={workspace_id} github={github_handle} github_id={github_id} affiliation={affiliation}")
 
     return _html(200, "Successfully linked your GitHub account.")
+
+
+def _handle_maintainer_sync():
+    """Daily sync: query OpenSearch metrics cluster for org-wide maintainer data."""
+    if not METRICS_ROLE_ARN or not METRICS_CLUSTER_ENDPOINT:
+        logger.error("MAINTAINER_SYNC: METRICS_ROLE_ARN or METRICS_CLUSTER_ENDPOINT not configured")
+        return {"synced": 0, "error": "missing config"}
+
+    table = _get_table()
+    if not table:
+        return {"synced": 0, "error": "no identity table"}
+
+    try:
+        sts = boto3.client("sts")
+        assumed = sts.assume_role(
+            RoleArn=METRICS_ROLE_ARN,
+            RoleSessionName="oscar-maintainer-sync",
+            DurationSeconds=900,
+        )
+        creds = assumed["Credentials"]
+
+        from requests_aws4auth import AWS4Auth
+        auth = AWS4Auth(
+            creds["AccessKeyId"],
+            creds["SecretAccessKey"],
+            os.environ.get("AWS_REGION", "us-east-1"),
+            "es",
+            session_token=creds["SessionToken"],
+        )
+    except Exception as e:
+        logger.error(f"MAINTAINER_SYNC: Failed to assume metrics role: {e}")
+        return {"synced": 0, "error": "sts_assume_role_failed"}
+
+    query = {
+        "size": 0,
+        "query": {
+            "range": {
+                "current_date": {
+                    "gte": "now-7d/d",
+                },
+            },
+        },
+        "aggs": {
+            "maintainers": {
+                "terms": {"field": "github_login.keyword", "size": 10000},
+            },
+        },
+    }
+
+    try:
+        url = f"{METRICS_CLUSTER_ENDPOINT}/maintainer-inactivity-*/_search"
+        resp = requests.post(url, json=query, auth=auth, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"MAINTAINER_SYNC: OpenSearch query failed: {e}")
+        return {"synced": 0, "error": "opensearch_query_failed"}
+
+    buckets = data.get("aggregations", {}).get("maintainers", {}).get("buckets", [])
+    active_maintainers = {b["key"].lower() for b in buckets if b.get("key")}
+    logger.info(f"MAINTAINER_SYNC: Found {len(active_maintainers)} active maintainers in metrics cluster")
+
+    if not active_maintainers:
+        logger.warning("MAINTAINER_SYNC: Zero maintainers found — skipping update to prevent false negatives")
+        return {"synced": 0, "error": "no_maintainers_found"}
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    scan_kwargs = {
+        "ProjectionExpression": "github_id, github_handle, is_org_maintainer, maintainer_synced_at",
+    }
+    while True:
+        response = table.scan(**scan_kwargs)
+        for item in response.get("Items", []):
+            handle = (item.get("github_handle") or "").lower()
+            is_maintainer = handle in active_maintainers
+            current_flag = item.get("is_org_maintainer", False)
+            if bool(current_flag) != is_maintainer:
+                table.update_item(
+                    Key={"github_id": item["github_id"]},
+                    UpdateExpression="SET is_org_maintainer = :m, maintainer_synced_at = :ts",
+                    ExpressionAttributeValues={":m": is_maintainer, ":ts": now},
+                )
+                updated += 1
+            elif not item.get("maintainer_synced_at"):
+                table.update_item(
+                    Key={"github_id": item["github_id"]},
+                    UpdateExpression="SET is_org_maintainer = :m, maintainer_synced_at = :ts",
+                    ExpressionAttributeValues={":m": is_maintainer, ":ts": now},
+                )
+
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_key
+
+    logger.info(f"MAINTAINER_SYNC: Updated {updated} records")
+    return {"synced": updated}
 
 
 class ChannelMembersFetchError(Exception):

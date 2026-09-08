@@ -192,6 +192,29 @@ class OscarLambdaStack(Stack):
         )
         rule.add_target(targets.LambdaFunction(function))
 
+        # Daily EventBridge schedule for maintainer sync
+        metrics_role_arn = os.environ.get("METRICS_ROLE_ARN", "")
+        metrics_cluster_endpoint = os.environ.get("METRICS_CLUSTER_ENDPOINT", "")
+        if metrics_role_arn and metrics_cluster_endpoint:
+            function.add_environment("METRICS_ROLE_ARN", metrics_role_arn)
+            function.add_environment("METRICS_CLUSTER_ENDPOINT", metrics_cluster_endpoint)
+
+            role.add_to_policy(iam.PolicyStatement(
+                actions=["sts:AssumeRole"],
+                resources=[metrics_role_arn],
+            ))
+
+            sync_rule = events.Rule(
+                self, "MaintainerSyncSchedule",
+                rule_name=f"oscar-maintainer-sync-{self.env_name}",
+                schedule=events.Schedule.rate(Duration.days(1)),
+                description="Daily maintainer sync from OpenSearch metrics cluster",
+            )
+            sync_rule.add_target(targets.LambdaFunction(
+                function,
+                event=events.RuleTargetInput.from_object({"action": "maintainer_sync"}),
+            ))
+
         self.lambda_functions["identity"] = function
 
     def _create_github_webhook_handler_lambda(self) -> None:

@@ -28,8 +28,12 @@ class FunctionDef:
     # Whether the MCP tool needs owner/repo injected
     needs_owner: bool = False
 
-    # Authorization policy: None = no pre-check, "admin" = admin-only
+    # Authorization policy: None = no pre-check, "admin" = admin-only,
+    # "maintainer" = live per-repo MAINTAINERS.md check
     auth_policy: Optional[str] = None
+
+    # Authorization tier for group gate: "contributor", "maintainer", "admin"
+    tier: str = "contributor"
 
     # Transform function: (params) -> mcp_args (only for MCP-routed functions)
     transform: Optional[Callable[[Dict[str, str]], Dict[str, Any]]] = None

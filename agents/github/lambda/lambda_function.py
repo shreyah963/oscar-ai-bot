@@ -22,6 +22,7 @@ from guardrails import (bulk_merge, list_merge_candidates,
 from http_client import ORG, GitHubAPIError, get
 from mcp_client import MCPClient
 from oscar_shared.approval_guard import validate_two_person_approval
+from oscar_shared.auth_policy import check_group_gate
 from registry import FunctionDef
 from response_builder import create_response
 
@@ -448,14 +449,7 @@ FUNCTIONS: Dict[str, FunctionDef] = {
         transform=_transform_search_pull_requests,
     ),
 
-    # Write operations (MCP)
-    "merge_pr": FunctionDef(
-        mcp_tool="merge_pull_request",
-        write=True,
-        needs_owner=True,
-        auth_policy="admin",
-        transform=_transform_merge_pr,
-    ),
+    # Contributor write operations (MCP)
     "create_issue": FunctionDef(
         mcp_tool="issue_write",
         write=True,
@@ -468,50 +462,67 @@ FUNCTIONS: Dict[str, FunctionDef] = {
         needs_owner=True,
         transform=_transform_close_issue,
     ),
-
-    # Write operations (direct API)
-    "transfer_issue": FunctionDef(
-        write=True,
-        token_scope="org",
-        auth_policy="admin",
-        handler=_handle_transfer_issue,
-    ),
     "add_comment": FunctionDef(
         write=True,
         handler=_handle_add_comment,
     ),
+
+    # Maintainer operations (direct API, per-repo authorization)
+    "create_tag": FunctionDef(
+        write=True,
+        tier="maintainer",
+        auth_policy="maintainer",
+        handler=partial(_handle_create_ref, ref_type="tags"),
+    ),
+    "create_branch": FunctionDef(
+        write=True,
+        tier="maintainer",
+        auth_policy="maintainer",
+        handler=partial(_handle_create_ref, ref_type="heads"),
+    ),
+
+    # Admin operations (MCP)
+    "merge_pr": FunctionDef(
+        mcp_tool="merge_pull_request",
+        write=True,
+        needs_owner=True,
+        tier="admin",
+        auth_policy="admin",
+        transform=_transform_merge_pr,
+    ),
+
+    # Admin operations (direct API)
+    "transfer_issue": FunctionDef(
+        write=True,
+        token_scope="org",
+        tier="admin",
+        auth_policy="admin",
+        handler=_handle_transfer_issue,
+    ),
     "bulk_comment": FunctionDef(
         write=True,
         token_scope="org",
+        tier="admin",
         auth_policy="admin",
         handler=_handle_bulk_comment,
     ),
-
-    # Bulk merge (direct API, org-wide)
     "list_merge_candidates": FunctionDef(
         token_scope="org",
+        tier="admin",
+        auth_policy="admin",
         handler=_handle_list_merge_candidates,
     ),
     "bulk_merge_prs": FunctionDef(
         write=True,
         token_scope="org",
+        tier="admin",
         auth_policy="admin",
         handler=_handle_bulk_merge_prs,
     ),
 
-    # Maintainer lookup (direct API, repo-scoped)
+    # Contributor read operations (direct API)
     "get_repo_maintainers": FunctionDef(
         handler=_handle_get_repo_maintainers,
-    ),
-
-    # Tag and branch operations (direct API)
-    "create_tag": FunctionDef(
-        write=True,
-        handler=partial(_handle_create_ref, ref_type="tags"),
-    ),
-    "create_branch": FunctionDef(
-        write=True,
-        handler=partial(_handle_create_ref, ref_type="heads"),
     ),
 }
 
@@ -614,7 +625,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             audit_log(function_name, params, org_error, False, request_id, session_attributes)
             return create_response(event, {"error": org_error})
 
-        # --- Authorization: policy-based guard ---
+        # --- Group gate: coarse tier check (no I/O, pre-token) ---
+        gate_error = check_group_gate(func_def.tier, session_attributes)
+        if gate_error:
+            logger.warning("GITHUB [%s]: Group gate denied: %s", request_id, gate_error["message"])
+            audit_log(function_name, params, gate_error["message"], False, request_id, session_attributes)
+            return create_response(event, json.dumps(gate_error))
+
+        # --- Function gate: per-function auth_policy check ---
         if func_def.auth_policy == "admin":
             admin_error = _validate_admin_only(session_attributes, function_name)
             if admin_error:

@@ -15,6 +15,7 @@ from typing import Callable
 import boto3
 from config import config
 from input_validator import InputValidationError, validate_and_sanitize
+from oscar_shared.auth_policy import derive_tier
 from oscar_shared.oauth_state import generate_state
 from slack_sdk import WebClient
 
@@ -56,6 +57,19 @@ class MessageProcessor:
         query = re.sub(config.patterns['mention'], '', text).strip()
         return query
 
+    def _enrich_user_attrs(self, attrs: dict, user_id: str, prefix: str) -> None:
+        """Add admin, github_handle, is_maintainer, and tier for a user."""
+        is_admin = self.is_fully_authorized_user(user_id)
+        attrs[f'{prefix}_is_admin'] = str(is_admin)
+
+        record = self._get_identity_record(user_id)
+        github_handle = record.get("github_handle", "")
+        is_maintainer = record.get("is_org_maintainer", False)
+
+        attrs[f'{prefix}_github_handle'] = github_handle
+        attrs[f'{prefix}_is_maintainer'] = str(bool(is_maintainer))
+        attrs[f'{prefix}_tier'] = derive_tier(is_admin, bool(is_maintainer))
+
     def _build_identity_attributes(self, thread_key: str, current_user_id: str) -> dict:
         """Build out-of-band session attributes for identity provenance.
 
@@ -63,14 +77,8 @@ class MessageProcessor:
         - Requester = user whose message triggered a [CONFIRMATION_REQUIRED] response
         - Approver = a *different* user who speaks after that prompt
 
-        This prevents stale thread participants from being treated as implicit
-        requesters for actions they never initiated.
-
-        The current_user_id is the authenticated Slack user from the signed event.
-
-        Also sets admin flags for both requester and approver so downstream
-        lambdas can enforce per-operation authorization without needing direct
-        access to the admin list.
+        Enriches each with github_handle, is_maintainer, and tier for
+        downstream group gate and function gate enforcement.
         """
         attrs = {'current_user_id': current_user_id}
 
@@ -79,16 +87,16 @@ class MessageProcessor:
             pending_requester = stored_context.get('pending_approval_requester')
             if pending_requester:
                 attrs['requester_user_id'] = pending_requester
-                attrs['requester_is_admin'] = str(self.is_fully_authorized_user(pending_requester))
+                self._enrich_user_attrs(attrs, pending_requester, 'requester')
                 if current_user_id != pending_requester:
                     attrs['approver_user_id'] = current_user_id
-                    attrs['approver_is_admin'] = str(self.is_fully_authorized_user(current_user_id))
+                    self._enrich_user_attrs(attrs, current_user_id, 'approver')
             else:
                 attrs['requester_user_id'] = current_user_id
-                attrs['requester_is_admin'] = str(self.is_fully_authorized_user(current_user_id))
+                self._enrich_user_attrs(attrs, current_user_id, 'requester')
         else:
             attrs['requester_user_id'] = current_user_id
-            attrs['requester_is_admin'] = str(self.is_fully_authorized_user(current_user_id))
+            self._enrich_user_attrs(attrs, current_user_id, 'requester')
 
         return attrs
 
@@ -272,15 +280,24 @@ class MessageProcessor:
             self._identity_table = dynamodb_resource.Table(table_name)
         return self._identity_table
 
-    def _has_identity_mapping(self, user_id: str) -> bool:
+    def _get_identity_record(self, user_id: str) -> dict:
+        """Look up the active identity record for a Slack user.
+
+        Returns the full DynamoDB item or an empty dict if not found.
+        """
         table = self._get_identity_table()
         resp = table.query(
             IndexName="slack-user-index",
             KeyConditionExpression="slack_user_id = :uid",
             ExpressionAttributeValues={":uid": user_id},
         )
-        items = resp.get("Items", [])
-        return any(i.get("status") == "active" for i in items)
+        for item in resp.get("Items", []):
+            if item.get("status") == "active":
+                return item
+        return {}
+
+    def _has_identity_mapping(self, user_id: str) -> bool:
+        return bool(self._get_identity_record(user_id))
 
     def _handle_link_github_via_dm(self, user_id: str, channel: str, thread_ts: str, reaction_ts: str, say: Callable) -> None:
         """Handle link-github request by sending OAuth link via DM."""

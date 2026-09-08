@@ -331,7 +331,7 @@ class TestLambdaHandlerRouting:
         result = mod.lambda_handler({
             "function": "bulk_merge_prs",
             "parameters": [{"name": "version", "value": "3.0.0"}],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin"},
         }, None)
         body = _get_body(result)
         assert "SECURITY ERROR" in body
@@ -351,7 +351,7 @@ class TestLambdaHandlerRouting:
                 {"name": "version", "value": "3.0.0"},
                 {"name": "confirmed", "value": "false"},
             ],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin"},
         }, None)
         body = _get_body(result)
         assert "cancelled" in body
@@ -368,6 +368,7 @@ class TestLambdaHandlerRouting:
         result = mod.lambda_handler({
             "function": "list_merge_candidates",
             "parameters": [{"name": "version", "value": "3.0.0"}],
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin"},
         }, None)
         body = _get_body(result)
         assert "candidates" in body
@@ -392,7 +393,7 @@ class TestGuardrailBlocking:
                 {"name": "repo", "value": "OpenSearch"},
                 {"name": "pr_number", "value": "10"},
             ],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin"},
         }, None)
         body = _get_body(result)
         assert "CI failing" in body
@@ -437,7 +438,7 @@ class TestGuardrailBlocking:
                 {"name": "pr_number", "value": "10"},
                 {"name": "force", "value": "true"},
             ],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "approver_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin", "approver_is_admin": "True"},
         }, None)
         body = _get_body(result)
         assert "SECURITY ERROR" in body
@@ -461,7 +462,7 @@ class TestTransferIssue:
                 {"name": "issue_number", "value": "5"},
                 {"name": "target_repo", "value": "other-repo"},
             ],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "approver_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin", "approver_is_admin": "True"},
         }, None)
         body = _get_body(result)
         assert "SECURITY ERROR" in body
@@ -482,7 +483,132 @@ class TestTransferIssue:
                 {"name": "issue_number", "value": "5"},
                 {"name": "target_repo", "value": "other-repo"},
             ],
-            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True"},
+            "sessionAttributes": {"requester_user_id": "U_ADM", "requester_is_admin": "True", "requester_tier": "admin"},
         }, None)
         body = _get_body(result)
         assert "success" in body
+
+
+class TestGroupGate:
+    """Verify that the group gate rejects unauthorized users before token acquisition."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_contributor_blocked_from_admin_function(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "merge_pr",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "pr_number", "value": "10"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_CONTRIB",
+                "requester_is_admin": "False",
+                "requester_tier": "contributor",
+                "requester_is_maintainer": "False",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" in body
+        assert "admin privileges" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_maintainer_blocked_from_admin_function(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "bulk_comment",
+            "parameters": [
+                {"name": "issues", "value": "OpenSearch#1"},
+                {"name": "body", "value": "test"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_MAINT",
+                "requester_is_admin": "False",
+                "requester_tier": "maintainer",
+                "requester_is_maintainer": "True",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" in body
+        assert "admin privileges" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_non_maintainer_blocked_from_maintainer_function(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "create_tag",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "tag_name", "value": "3.0.0"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_CONTRIB",
+                "requester_is_admin": "False",
+                "requester_tier": "contributor",
+                "requester_is_maintainer": "False",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" in body
+        assert "maintainer privileges" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_contributor_passes_group_gate_for_read_ops(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "list_prs",
+            "parameters": [{"name": "repo", "value": "OpenSearch"}],
+            "sessionAttributes": {
+                "requester_user_id": "U_CONTRIB",
+                "requester_is_admin": "False",
+                "requester_tier": "contributor",
+                "requester_is_maintainer": "False",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" not in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_admin_passes_group_gate_for_admin_ops(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "list_merge_candidates",
+            "parameters": [{"name": "version", "value": "3.0.0"}],
+            "sessionAttributes": {
+                "requester_user_id": "U_ADM",
+                "requester_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" not in body
