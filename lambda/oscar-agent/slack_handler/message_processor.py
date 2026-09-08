@@ -447,13 +447,9 @@ class MessageProcessor:
                 response = str(response).strip()
 
             # Update context with new query and response (skip for slash commands to avoid duplication)
-            # Store confirmation-required turns as non-privileged so that a
-            # non-admin approver (e.g. repo maintainer) can see the action
-            # summary they need to approve.
-            store_privileged = privilege if not confirmation_required else False
             if not skip_context_storage:
                 self.storage.update_context(thread_key, query, response, session_id, new_session_id,
-                                            user_id=user_id, privileged=store_privileged)
+                                            user_id=user_id, privileged=privilege)
 
             # Format response for Slack before sending
             formatter = MessageFormatter()
