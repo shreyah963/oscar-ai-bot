@@ -127,6 +127,7 @@ def _handle_transfer_issue(token: str, params: Dict[str, str], request_id: str, 
     enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
     approval_error = validate_two_person_approval(
         session_attributes or {}, enable_2pr, f'action=transfer_issue, repo={repo}, issue={issue_number}',
+        auth_policy="admin",
     )
     if approval_error:
         return json.dumps(approval_error)
@@ -156,6 +157,7 @@ def _handle_bulk_comment(token: str, params: Dict[str, str], request_id: str, se
     enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
     approval_error = validate_two_person_approval(
         session_attributes or {}, enable_2pr, f'action=bulk_comment, issues={issue_targets}',
+        auth_policy="admin",
     )
     if approval_error:
         return json.dumps(approval_error)
@@ -202,6 +204,7 @@ def _handle_bulk_merge_prs(token: str, params: Dict[str, str], request_id: str, 
     enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
     approval_error = validate_two_person_approval(
         session_attributes or {}, enable_2pr, f'action=bulk_merge_prs, version={version}',
+        auth_policy="admin",
     )
     if approval_error:
         return json.dumps(approval_error)
@@ -339,7 +342,7 @@ def _validate_admin_only(session_attributes: Dict[str, str], action_label: str) 
 
 def _validate_maintainer_authorization(
     token: str, repo: str, session_attributes: Dict[str, str], action_label: str,
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """Validate requester (and approver if present) are admins or maintainers of the repo."""
     attrs = session_attributes or {}
     requester_id = attrs.get("requester_user_id", "")
@@ -398,6 +401,7 @@ def _handle_create_ref(
     enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
     approval_error = validate_two_person_approval(
         session_attributes or {}, enable_2pr, f'action=create_{label}, repo={repo}, {label}={name}',
+        auth_policy="maintainer",
     )
     if approval_error:
         return json.dumps(approval_error)
@@ -653,7 +657,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     force = str(params.get("force", "")).strip().lower() in ("true", "1", "yes")
                     if force:
                         force_approval_error = validate_two_person_approval(
-                            session_attributes, True, f'action=force_merge, repo={params.get("repo", "")}, pr={params.get("pr_number", "")}'
+                            session_attributes, True, f'action=force_merge, repo={params.get("repo", "")}, pr={params.get("pr_number", "")}',
+                            auth_policy="admin",
                         )
                         if force_approval_error:
                             return create_response(event, json.dumps(force_approval_error))
@@ -681,6 +686,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     approval_error = validate_two_person_approval(
                         session_attributes, enable_2pr,
                         f'action=merge_pr, repo={params.get("repo", "")}, pr={params.get("pr_number", "")}',
+                        auth_policy="admin",
                     )
                     if approval_error:
                         return create_response(event, json.dumps(approval_error))
