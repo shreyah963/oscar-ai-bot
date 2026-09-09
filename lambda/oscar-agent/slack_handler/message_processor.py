@@ -284,17 +284,26 @@ class MessageProcessor:
         """Look up the active identity record for a Slack user.
 
         Returns the full DynamoDB item or an empty dict if not found.
+        Results are cached per user_id for the lifetime of this instance.
         """
+        cache = getattr(self, '_identity_cache', None)
+        if cache is None:
+            self._identity_cache = cache = {}
+        if user_id in cache:
+            return cache[user_id]
         table = self._get_identity_table()
         resp = table.query(
             IndexName="slack-user-index",
             KeyConditionExpression="slack_user_id = :uid",
             ExpressionAttributeValues={":uid": user_id},
         )
+        record = {}
         for item in resp.get("Items", []):
             if item.get("status") == "active":
-                return item
-        return {}
+                record = item
+                break
+        cache[user_id] = record
+        return record
 
     def _has_identity_mapping(self, user_id: str) -> bool:
         return bool(self._get_identity_record(user_id))
@@ -395,6 +404,7 @@ class MessageProcessor:
                 say(text=e.user_message, thread_ts=thread_ts)
                 return
 
+            self._identity_cache = {}
             if not self._has_identity_mapping(user_id):
                 self._handle_link_github_via_dm(user_id, channel, thread_ts, reaction_ts, say)
                 return

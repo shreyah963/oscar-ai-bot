@@ -33,11 +33,13 @@ def check_group_gate(
         return None
 
     if tier == "maintainer":
-        if session_attributes.get("requester_is_maintainer") != "True":
+        if (session_attributes.get("requester_is_maintainer") != "True"
+                and session_attributes.get("requester_tier") != "admin"):
             logger.warning(
                 "GROUP_GATE_DENIED: maintainer tier required, "
-                "requester_is_maintainer=%s",
+                "requester_is_maintainer=%s, requester_tier=%s",
                 session_attributes.get("requester_is_maintainer"),
+                session_attributes.get("requester_tier"),
             )
             return {
                 "status": "error",
@@ -62,14 +64,6 @@ def check_group_gate(
             }
 
     return None
-
-
-def is_admin(session_attributes: Dict[str, str]) -> bool:
-    return session_attributes.get("requester_tier") == "admin"
-
-
-def is_org_maintainer(session_attributes: Dict[str, str]) -> bool:
-    return session_attributes.get("requester_is_maintainer") == "True"
 
 
 def derive_tier(is_admin_flag: bool, is_maintainer_flag: bool) -> str:

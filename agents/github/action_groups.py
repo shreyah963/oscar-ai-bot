@@ -3,8 +3,8 @@
 
 """Bedrock action group definitions for GitHub agent.
 
-Three tier-tagged groups: contributor (read + basic writes),
-maintainer (create_tag, create_branch), admin (merge, transfer, bulk ops).
+Three tier-tagged groups: contributor (read-only),
+maintainer (create_tag, create_branch), admin (all writes).
 The Lambda enforces authorization at runtime via group gate + function gate.
 """
 
@@ -26,7 +26,7 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
         # ------------------------------------ Group 1: Contributor Operations
         bedrock.CfnAgent.AgentActionGroupProperty(
             action_group_name="githubContributorOps",
-            description="Read-only GitHub operations and basic writes (issues, comments, search)",
+            description="Read-only GitHub operations: PRs, issues, search, and maintainer lookup",
             action_group_state="ENABLED",
             action_group_executor=executor,
             function_schema=bedrock.CfnAgent.FunctionSchemaProperty(
@@ -107,47 +107,6 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
                             ),
                         },
                     ),
-                    bedrock.CfnAgent.FunctionProperty(
-                        name="add_comment",
-                        description=(
-                            "Add a comment to an issue or pull request. "
-                            "Requires explicit user confirmation before execution."
-                        ),
-                        parameters={
-                            "repo": _param("string", "Repository name", True),
-                            "issue_number": _param("string", "Issue or pull request number", True),
-                            "body": _param("string", "Comment body text (supports markdown)", True),
-                        },
-                    ),
-                    bedrock.CfnAgent.FunctionProperty(
-                        name="create_issue",
-                        description=(
-                            "Create an issue on a repository. "
-                            "Requires explicit user confirmation before execution."
-                        ),
-                        parameters={
-                            "repo": _param("string", "Repository name", True),
-                            "title": _param("string", "Issue title", True),
-                            "body": _param("string", "Issue description body"),
-                            "labels": _param("string", "Comma-separated label names to apply"),
-                            "assignees": _param("string", "Comma-separated GitHub usernames to assign"),
-                        },
-                    ),
-                    bedrock.CfnAgent.FunctionProperty(
-                        name="close_issue",
-                        description=(
-                            "Close an issue with a reason. "
-                            "Requires explicit user confirmation before execution."
-                        ),
-                        parameters={
-                            "repo": _param("string", "Repository name", True),
-                            "issue_number": _param("string", "Issue number to close", True),
-                            "reason": _param(
-                                "string",
-                                "Reason for closing: 'completed' or 'not_planned'. Defaults to 'completed'.",
-                            ),
-                        },
-                    ),
                 ]
             ),
         ),
@@ -209,13 +168,42 @@ def get_action_groups(lambda_arn: str) -> List[bedrock.CfnAgent.AgentActionGroup
         bedrock.CfnAgent.AgentActionGroupProperty(
             action_group_name="githubAdminOps",
             description=(
-                "Admin-only operations: merge PRs, transfer issues, bulk comment, "
-                "and bulk merge automated PRs with guardrail validation."
+                "Admin-only operations: create/close issues, merge PRs, transfer issues, "
+                "bulk comment, and bulk merge automated PRs with guardrail validation."
             ),
             action_group_state="ENABLED",
             action_group_executor=executor,
             function_schema=bedrock.CfnAgent.FunctionSchemaProperty(
                 functions=[
+                    bedrock.CfnAgent.FunctionProperty(
+                        name="create_issue",
+                        description=(
+                            "Create an issue on a repository. "
+                            "Requires explicit user confirmation before execution."
+                        ),
+                        parameters={
+                            "repo": _param("string", "Repository name", True),
+                            "title": _param("string", "Issue title", True),
+                            "body": _param("string", "Issue description body"),
+                            "labels": _param("string", "Comma-separated label names to apply"),
+                            "assignees": _param("string", "Comma-separated GitHub usernames to assign"),
+                        },
+                    ),
+                    bedrock.CfnAgent.FunctionProperty(
+                        name="close_issue",
+                        description=(
+                            "Close an issue with a reason. "
+                            "Requires explicit user confirmation before execution."
+                        ),
+                        parameters={
+                            "repo": _param("string", "Repository name", True),
+                            "issue_number": _param("string", "Issue number to close", True),
+                            "reason": _param(
+                                "string",
+                                "Reason for closing: 'completed' or 'not_planned'. Defaults to 'completed'.",
+                            ),
+                        },
+                    ),
                     bedrock.CfnAgent.FunctionProperty(
                         name="merge_pr",
                         description=(

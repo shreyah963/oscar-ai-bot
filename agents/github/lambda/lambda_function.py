@@ -14,10 +14,10 @@ from typing import Any, Dict, Optional
 
 import boto3
 from authorizer import audit_log, validate_org_scope
-from github_api import (add_comment, bulk_comment, create_ref,
+from github_api import (bulk_comment, create_ref,
                         get_repo_maintainers, transfer_issue)
 from guardrails import (bulk_merge, list_merge_candidates,
-                        validate_bulk_comment, validate_comment,
+                        validate_bulk_comment,
                         validate_single_pr, validate_transfer_issue)
 from http_client import ORG, GitHubAPIError, get
 from mcp_client import MCPClient
@@ -125,14 +125,6 @@ def _handle_transfer_issue(token: str, params: Dict[str, str], request_id: str, 
     target_repo = params.get("target_repo", "")
     issue_number = int(params.get("issue_number", "0"))
 
-    enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-    approval_error = validate_two_person_approval(
-        session_attributes or {}, enable_2pr, f'action=transfer_issue, repo={repo}, issue={issue_number}',
-        auth_policy="admin",
-    )
-    if approval_error:
-        return json.dumps(approval_error)
-
     logger.info(
         "GITHUB [%s]: Direct API transfer_issue #%d from %s to %s",
         request_id, issue_number, repo, target_repo,
@@ -140,28 +132,9 @@ def _handle_transfer_issue(token: str, params: Dict[str, str], request_id: str, 
     return transfer_issue(token, ORG, repo, issue_number, target_repo)
 
 
-def _handle_add_comment(token: str, params: Dict[str, str], request_id: str, session_attributes: Dict[str, str] = None) -> Any:
-    repo = params.get("repo", "")
-    issue_number = int(params.get("issue_number", "0"))
-    body = params.get("body", "")
-    logger.info(
-        "GITHUB [%s]: Direct API add_comment on %s#%d",
-        request_id, repo, issue_number,
-    )
-    return add_comment(token, ORG, repo, issue_number, body)
-
-
 def _handle_bulk_comment(token: str, params: Dict[str, str], request_id: str, session_attributes: Dict[str, str] = None) -> Any:
     body = params.get("body", "")
     issue_targets = _parse_issue_targets(params.get("issues", ""))
-
-    enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-    approval_error = validate_two_person_approval(
-        session_attributes or {}, enable_2pr, f'action=bulk_comment, issues={issue_targets}',
-        auth_policy="admin",
-    )
-    if approval_error:
-        return json.dumps(approval_error)
 
     logger.info(
         "GITHUB [%s]: Direct API bulk_comment on %d issues",
@@ -201,14 +174,6 @@ def _handle_bulk_merge_prs(token: str, params: Dict[str, str], request_id: str, 
             "status": "error",
             "message": "Bulk merge cancelled. confirmed=false.",
         })
-
-    enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-    approval_error = validate_two_person_approval(
-        session_attributes or {}, enable_2pr, f'action=bulk_merge_prs, version={version}',
-        auth_policy="admin",
-    )
-    if approval_error:
-        return json.dumps(approval_error)
 
     logger.info(
         "GITHUB [%s]: bulk_merge_prs version=%s org=%s",
@@ -266,44 +231,17 @@ def _resolve_commit_sha(token: str, repo: str, commit_sha: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Role-based authorization (admin or repo maintainer)
+# Authorization helpers
 # ---------------------------------------------------------------------------
 
-_identity_table = None
+def _is_repo_maintainer(token: str, repo: str, github_handle: str, is_admin_flag: str) -> bool:
+    """Check if a user is an admin or a maintainer of the given repo.
 
-
-def _get_identity_table():
-    """Lazy-init DynamoDB identity table for Slack → GitHub handle lookups."""
-    global _identity_table
-    if _identity_table is None:
-        table_name = os.environ.get("IDENTITY_TABLE_NAME", "")
-        if not table_name:
-            return None
-        _identity_table = boto3.resource("dynamodb").Table(table_name)
-    return _identity_table
-
-
-def _resolve_github_handle(slack_user_id: str) -> str:
-    """Resolve a Slack user ID to their GitHub handle via the identity table."""
-    table = _get_identity_table()
-    if not table or not slack_user_id:
-        return ""
-    resp = table.query(
-        IndexName="slack-user-index",
-        KeyConditionExpression="slack_user_id = :uid",
-        ExpressionAttributeValues={":uid": slack_user_id},
-    )
-    for item in resp.get("Items", []):
-        if item.get("status") == "active":
-            return item.get("github_handle", "")
-    return ""
-
-
-def _is_admin_or_maintainer(token: str, repo: str, slack_user_id: str, is_admin_flag: str) -> bool:
-    """Check if a Slack user is an admin or a maintainer of the given repo."""
+    Uses the github_handle from session attributes (enriched by oscar-agent)
+    rather than querying DynamoDB directly.
+    """
     if is_admin_flag == "True":
         return True
-    github_handle = _resolve_github_handle(slack_user_id)
     if not github_handle:
         return False
     maintainers_result = json.loads(get_repo_maintainers(token, ORG, repo))
@@ -313,10 +251,9 @@ def _is_admin_or_maintainer(token: str, repo: str, slack_user_id: str, is_admin_
 
 
 def _validate_admin_only(session_attributes: Dict[str, str], action_label: str) -> Optional[Dict[str, Any]]:
-    """Reject non-admin users. Returns error dict or None if authorized.
+    """Gate 4b: reject non-admin requesters. Returns error dict or None if authorized.
 
-    Checks that the requester is an admin. If an approver is present (2PR flow),
-    also checks that they are an admin.
+    Approver authorization is handled by the centralized 2PR check.
     """
     requester_is_admin = session_attributes.get("requester_is_admin", "False")
     if requester_is_admin != "True":
@@ -327,31 +264,22 @@ def _validate_admin_only(session_attributes: Dict[str, str], action_label: str) 
                 "Only fully authorized users can perform this operation."
             ),
         }
-    approver_id = session_attributes.get("approver_user_id")
-    if approver_id:
-        approver_is_admin = session_attributes.get("approver_is_admin", "False")
-        if approver_is_admin != "True":
-            return {
-                "status": "error",
-                "message": (
-                    f"AUTHORIZATION ERROR: {action_label} requires admin privileges for the approver. "
-                    "Only fully authorized users can approve this operation."
-                ),
-            }
     return None
 
 
 def _validate_maintainer_authorization(
     token: str, repo: str, session_attributes: Dict[str, str], action_label: str,
 ) -> Optional[Dict[str, Any]]:
-    """Validate requester is an admin or maintainer of the specific repo.
+    """Gate 4b for maintainer ops: live per-repo MAINTAINERS.md check.
 
-    Approver authorization is handled by the 2PR guard (auth_policy="maintainer"
-    requires an admin approver), so this function only checks the requester.
+    Verifies the requester is an admin or a maintainer of the specific repo
+    (not just any repo). Uses requester_github_handle from session attributes.
+    Approver authorization is handled by the centralized 2PR check.
     """
     attrs = session_attributes or {}
     requester_id = attrs.get("requester_user_id", "")
     requester_admin = attrs.get("requester_is_admin", "False")
+    github_handle = attrs.get("requester_github_handle", "")
 
     if not requester_id:
         return {
@@ -362,7 +290,7 @@ def _validate_maintainer_authorization(
             ),
         }
 
-    if not _is_admin_or_maintainer(token, repo, requester_id, requester_admin):
+    if not _is_repo_maintainer(token, repo, github_handle, requester_admin):
         return {
             "status": "error",
             "message": (
@@ -391,14 +319,6 @@ def _handle_create_ref(
     validation_error = _validate_ref_name(name, label.capitalize())
     if validation_error:
         return json.dumps(validation_error)
-
-    enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-    approval_error = validate_two_person_approval(
-        session_attributes or {}, enable_2pr, f'action=create_{label}, repo={repo}, {label}={name}',
-        auth_policy="maintainer",
-    )
-    if approval_error:
-        return json.dumps(approval_error)
 
     auth_error = _validate_maintainer_authorization(
         token, repo, session_attributes or {}, f'create_{label} on {repo}',
@@ -449,24 +369,6 @@ FUNCTIONS: Dict[str, FunctionDef] = {
         transform=_transform_search_pull_requests,
     ),
 
-    # Contributor write operations (MCP)
-    "create_issue": FunctionDef(
-        mcp_tool="issue_write",
-        write=True,
-        needs_owner=True,
-        transform=_transform_create_issue,
-    ),
-    "close_issue": FunctionDef(
-        mcp_tool="issue_write",
-        write=True,
-        needs_owner=True,
-        transform=_transform_close_issue,
-    ),
-    "add_comment": FunctionDef(
-        write=True,
-        handler=_handle_add_comment,
-    ),
-
     # Maintainer operations (direct API, per-repo authorization)
     "create_tag": FunctionDef(
         write=True,
@@ -489,6 +391,24 @@ FUNCTIONS: Dict[str, FunctionDef] = {
         tier="admin",
         auth_policy="admin",
         transform=_transform_merge_pr,
+    ),
+
+    # Admin operations (MCP)
+    "create_issue": FunctionDef(
+        mcp_tool="issue_write",
+        write=True,
+        needs_owner=True,
+        tier="admin",
+        auth_policy="admin",
+        transform=_transform_create_issue,
+    ),
+    "close_issue": FunctionDef(
+        mcp_tool="issue_write",
+        write=True,
+        needs_owner=True,
+        tier="admin",
+        auth_policy="admin",
+        transform=_transform_close_issue,
     ),
 
     # Admin operations (direct API)
@@ -540,12 +460,6 @@ def _run_guardrails(
         pr_number = int(params.get("pr_number", "0"))
         return validate_single_pr(token, ORG, repo, pr_number)
 
-    elif function_name == "add_comment":
-        repo = params.get("repo", "")
-        issue_number = int(params.get("issue_number", "0"))
-        body = params.get("body", "")
-        return validate_comment(token, ORG, repo, issue_number, body)
-
     elif function_name == "bulk_comment":
         issue_targets = _parse_issue_targets(params.get("issues", ""))
         body = params.get("body", "")
@@ -561,7 +475,7 @@ def _run_guardrails(
 
 
 # Functions that have pre-execution guardrails
-_GUARDED_FUNCTIONS = frozenset({"merge_pr", "add_comment", "bulk_comment", "transfer_issue"})
+_GUARDED_FUNCTIONS = frozenset({"merge_pr", "bulk_comment", "transfer_issue"})
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +553,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 audit_log(function_name, params, admin_error["message"], False, request_id, session_attributes)
                 return create_response(event, json.dumps(admin_error))
 
+        # --- 2PR: all write ops, controlled by ENABLE_2PR or GITHUB_ENABLE_2PR ---
+        if func_def.write:
+            enable_2pr = (
+                os.environ.get("ENABLE_2PR", "false").lower() == "true"
+                or os.environ.get("GITHUB_ENABLE_2PR", "false").lower() == "true"
+            )
+            approval_error = validate_two_person_approval(
+                session_attributes, enable_2pr,
+                f'action={function_name}',
+                auth_policy="admin",
+            )
+            if approval_error:
+                audit_log(function_name, params, approval_error["message"], False, request_id, session_attributes)
+                return create_response(event, json.dumps(approval_error))
+
         # --- Audit log write operations (redacting sensitive fields) ---
         if func_def.write:
             safe_params = {
@@ -691,17 +620,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         )
                         audit_log(function_name, params, guardrail_result["message"], False, request_id, session_attributes)
                         return create_response(event, guardrail_result)
-                else:
-                    # Guardrails passed — enforce 2PR when enabled
-                    enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
-                    approval_error = validate_two_person_approval(
-                        session_attributes, enable_2pr,
-                        f'action=merge_pr, repo={params.get("repo", "")}, pr={params.get("pr_number", "")}',
-                        auth_policy="admin",
-                    )
-                    if approval_error:
-                        return create_response(event, json.dumps(approval_error))
-
                 # Pin merge to validated SHA to prevent TOCTOU race
                 validated_sha = guardrail_result.get("head_sha")
                 if validated_sha:

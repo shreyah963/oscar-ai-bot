@@ -32,6 +32,7 @@ class GitHubAgent(OscarAgent):
                 "MCP_READ_ONLY": "false",
                 "GITHUB_ORG": GITHUB_ORG,
                 "ENABLE_2PR": os.environ.get("ENABLE_2PR", "false"),
+                "GITHUB_ENABLE_2PR": os.environ.get("GITHUB_ENABLE_2PR", "false"),
                 "ALLOWED_MERGE_AUTHORS": os.environ.get("ALLOWED_MERGE_AUTHORS", "opensearch-ci-bot"),
             },
         )
@@ -43,7 +44,10 @@ class GitHubAgent(OscarAgent):
         return get_action_groups(lambda_arn)
 
     def get_agent_instruction(self):
-        enable_2pr = os.environ.get("ENABLE_2PR", "false").lower() == "true"
+        enable_2pr = (
+            os.environ.get("ENABLE_2PR", "false").lower() == "true"
+            or os.environ.get("GITHUB_ENABLE_2PR", "false").lower() == "true"
+        )
         if enable_2pr:
             two_person_review_section = (
                 "TWO-PERSON REVIEW (MANDATORY FOR ALL WRITE OPERATIONS):\n"

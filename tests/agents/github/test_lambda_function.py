@@ -56,7 +56,6 @@ def _load_lambda(guardrails_overrides=None):
         sys.modules['http_client'] = mock_http
 
         mock_github_api = MagicMock()
-        mock_github_api.add_comment.return_value = json.dumps({"status": "success"})
         mock_github_api.bulk_comment.return_value = json.dumps({"status": "success", "commented": 2})
         mock_github_api.transfer_issue.return_value = json.dumps({"status": "success"})
         mock_github_api.get_repo_maintainers.return_value = json.dumps({"maintainers": ["user1"]})
@@ -266,26 +265,6 @@ class TestLambdaHandlerRouting:
 
     @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
     @patch('boto3.client')
-    def test_direct_api_handler_add_comment(self, mock_boto):
-        mock_boto.return_value.get_secret_value.return_value = {
-            'SecretString': json.dumps({
-                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
-            })
-        }
-        mod = _load_lambda()
-        result = mod.lambda_handler({
-            "function": "add_comment",
-            "parameters": [
-                {"name": "repo", "value": "OpenSearch"},
-                {"name": "issue_number", "value": "5"},
-                {"name": "body", "value": "Hello"},
-            ],
-        }, None)
-        body = _get_body(result)
-        assert "success" in body
-
-    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
-    @patch('boto3.client')
     def test_mcp_routed_function(self, mock_boto):
         mock_boto.return_value.get_secret_value.return_value = {
             'SecretString': json.dumps({
@@ -397,28 +376,6 @@ class TestGuardrailBlocking:
         }, None)
         body = _get_body(result)
         assert "CI failing" in body
-
-    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
-    @patch('boto3.client')
-    def test_add_comment_guardrail_failure_blocks(self, mock_boto):
-        mock_boto.return_value.get_secret_value.return_value = {
-            'SecretString': json.dumps({
-                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
-            })
-        }
-        guardrail_fail = MagicMock(return_value={"all_passed": False, "message": "Comment rejected"})
-        mod = _load_lambda(guardrails_overrides={"validate_comment": guardrail_fail})
-
-        result = mod.lambda_handler({
-            "function": "add_comment",
-            "parameters": [
-                {"name": "repo", "value": "OpenSearch"},
-                {"name": "issue_number", "value": "5"},
-                {"name": "body", "value": "spam"},
-            ],
-        }, None)
-        body = _get_body(result)
-        assert "Comment rejected" in body
 
     @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test'})
     @patch('boto3.client')
@@ -546,6 +503,31 @@ class TestGroupGate:
 
     @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
     @patch('boto3.client')
+    def test_admin_passes_group_gate_for_maintainer_function(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "create_tag",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "tag_name", "value": "3.0.0"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_ADM",
+                "requester_is_admin": "True",
+                "requester_tier": "admin",
+                "requester_is_maintainer": "False",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" not in body or "maintainer privileges" not in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
     def test_non_maintainer_blocked_from_maintainer_function(self, mock_boto):
         mock_boto.return_value.get_secret_value.return_value = {
             'SecretString': json.dumps({
@@ -591,6 +573,57 @@ class TestGroupGate:
         }, None)
         body = _get_body(result)
         assert "AUTHORIZATION ERROR" not in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_github_enable_2pr_flag_enforces_2pr(self, mock_boto):
+        """GITHUB_ENABLE_2PR alone (without ENABLE_2PR) enforces 2PR on writes."""
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "bulk_comment",
+            "parameters": [
+                {"name": "issues", "value": "OpenSearch#1"},
+                {"name": "body", "value": "test"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_ADM",
+                "requester_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "SECURITY ERROR" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_non_admin_blocked_from_create_issue(self, mock_boto):
+        """Non-admin users are blocked from create_issue by group gate."""
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "create_issue",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "title", "value": "test issue"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_CONTRIB",
+                "requester_is_admin": "False",
+                "requester_tier": "contributor",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "AUTHORIZATION ERROR" in body
+        assert "admin privileges" in body
 
     @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
     @patch('boto3.client')

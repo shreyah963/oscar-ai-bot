@@ -317,7 +317,7 @@ class TestGitHubAgentWriteOperations:
         groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
         admin_group = next(g for g in groups if g.action_group_name == "githubAdminOps")
         func_names = [f.name for f in admin_group.function_schema.functions]
-        for name in ["merge_pr", "transfer_issue", "bulk_comment", "list_merge_candidates", "bulk_merge_prs"]:
+        for name in ["create_issue", "close_issue", "merge_pr", "transfer_issue", "bulk_comment", "list_merge_candidates", "bulk_merge_prs"]:
             assert name in func_names, f"Missing admin function: {name}"
 
     def test_github_maintainer_ops_functions_defined(self):
@@ -330,12 +330,12 @@ class TestGitHubAgentWriteOperations:
         assert "create_branch" in func_names
 
     def test_github_contributor_ops_functions_defined(self):
-        """Contributor ops group should have read ops and basic writes."""
+        """Contributor ops group should have read-only ops."""
         agent = GitHubAgent()
         groups = agent.get_action_groups("arn:aws:lambda:us-east-1:123456789012:function:placeholder")
         contrib_group = next(g for g in groups if g.action_group_name == "githubContributorOps")
         func_names = [f.name for f in contrib_group.function_schema.functions]
-        for name in ["get_pr_details", "list_prs", "get_issue_details", "add_comment", "create_issue", "get_repo_maintainers"]:
+        for name in ["get_pr_details", "list_prs", "get_issue_details", "get_repo_maintainers"]:
             assert name in func_names, f"Missing contributor function: {name}"
 
     def test_github_mcp_not_read_only(self):
@@ -368,7 +368,7 @@ class TestGitHubAuthorizer:
         from authorizer import is_write_operation
         write_ops = [
             "merge_pr", "create_issue", "close_issue",
-            "transfer_issue", "add_comment", "bulk_comment",
+            "transfer_issue", "bulk_comment",
             "bulk_merge_prs",
         ]
         for op in write_ops:
