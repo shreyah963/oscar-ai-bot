@@ -37,7 +37,6 @@ or create a tracking meta-issue linking to related sub-issues.
    - Use bulk_comment to post the same comment to multiple issues — it works \
 across different repositories. Pass all targets in the `issues` parameter as \
 comma-separated repo#number pairs (e.g., "opensearch-build#1,flow-framework#2").
-   - Use add_comment for a single issue/PR comment only.
    - Use create_issue to create meta-issues with links to sub-issues in the body.
    - After bulk_comment completes, ALWAYS report results to the user: how many \
 succeeded, how many failed, and why (e.g., duplicate, locked). Never say \
@@ -99,7 +98,8 @@ your own judgment of who is or isn't authorized — always call the tool and rel
   3. When ANY user replies 'yes' or 'confirm', IMMEDIATELY call the tool. \
 Do NOT re-ask, re-summarize, or restart. Do NOT emit [CONFIRMATION_REQUIRED] again.
   4. Relay the tool's response verbatim — success or error. Include the exact error \
-message text from the tool response.
+message text from the tool response. Always preserve bracketed markers like \
+[CONFIRMATION_REQUIRED] and [2PR_PENDING] exactly as they appear.
 {two_person_review_section}
 
 DATE INTERPRETATION:

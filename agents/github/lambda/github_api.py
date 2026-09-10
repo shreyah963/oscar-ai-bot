@@ -3,7 +3,7 @@
 
 """Direct GitHub REST API client for operations not supported by the MCP server.
 
-Used for: transfer_issue, add_comment, bulk_comment, get_repo_maintainers.
+Used for: transfer_issue, bulk_comment, get_repo_maintainers.
 """
 
 import json
@@ -98,16 +98,6 @@ def transfer_issue(
         "title": issue_data.get("title"),
         "new_repository": issue_data.get("repository", {}).get("nameWithOwner"),
     })
-
-
-def add_comment(
-    token: str, owner: str, repo: str, issue_number: int, body: str,
-) -> str:
-    """Add a comment to an issue or pull request."""
-    _screen_outbound_body(body)
-    result = post(token, f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
-                  json_body={"body": body})
-    return json.dumps(result)
 
 
 def bulk_comment(

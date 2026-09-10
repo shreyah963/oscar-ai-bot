@@ -79,18 +79,33 @@ class MessageProcessor:
 
         Enriches each with github_handle, is_maintainer, and tier for
         downstream group gate and function gate enforcement.
+
+        Pending approvals expire after 5 minutes and are single-use: once an
+        approver is paired with a requester the pending state is consumed.
         """
         attrs = {'current_user_id': current_user_id}
 
         stored_context = self.storage.get_context(thread_key)
         if stored_context:
             pending_requester = stored_context.get('pending_approval_requester')
+            expires_at = stored_context.get('pending_approval_expires_at', 0)
+
+            if pending_requester and time.time() > expires_at:
+                logger.warning(
+                    "Pending approval expired for thread %s (requester=%s)",
+                    thread_key, pending_requester,
+                )
+                self.storage.clear_pending_approval_requester(thread_key)
+                pending_requester = None
+                attrs['approval_expired'] = 'True'
+
             if pending_requester:
                 attrs['requester_user_id'] = pending_requester
                 self._enrich_user_attrs(attrs, pending_requester, 'requester')
                 if current_user_id != pending_requester:
                     attrs['approver_user_id'] = current_user_id
                     self._enrich_user_attrs(attrs, current_user_id, 'approver')
+                    self.storage.clear_pending_approval_requester(thread_key)
             else:
                 attrs['requester_user_id'] = current_user_id
                 self._enrich_user_attrs(attrs, current_user_id, 'requester')
@@ -102,21 +117,13 @@ class MessageProcessor:
 
     @staticmethod
     def _is_approval_rejection(response: str) -> bool:
-        """Check if the response indicates an approval/authorization rejection.
+        """Check if the response indicates a 2PR rejection (approval still pending).
 
-        The Bedrock agent paraphrases Lambda errors in natural language, so we
-        match on common phrases rather than exact error strings.
+        The Lambda appends [2PR_PENDING] to approval errors. The LLM is
+        instructed to preserve bracketed markers, so we match on the exact
+        tag rather than fuzzy keyword heuristics.
         """
-        lower = response.lower()
-        if 'security error' in lower or 'authorization error' in lower:
-            return True
-        if 'two-person' in lower:
-            return True
-        if 'self-approval' in lower:
-            return True
-        if 'approval' in lower and ('different' in lower or 'second' in lower or 'distinct' in lower):
-            return True
-        return False
+        return '[2PR_PENDING]' in response
 
     def _handle_confirmation_detection(self, response: str, channel: str, thread_ts: str) -> str:
         """Handle confirmation detection and warning reaction management.
@@ -446,9 +453,10 @@ class MessageProcessor:
             response = self._handle_confirmation_detection(response, channel, thread_ts)
 
             # Track who triggered the confirmation for 2PR identity provenance.
-            # Set when a confirmation prompt is emitted; clear after the next turn
-            # (the approval or any non-confirmation response) — UNLESS the response
-            # is a self-approval rejection, which means the prompt is still pending.
+            # Set when a confirmation prompt is emitted; clear after the next
+            # turn (the approval or any non-confirmation response) — UNLESS
+            # the response is a 2PR rejection (e.g. self-approval, non-admin
+            # approver, expired window), which means the prompt is still pending.
             # Only overwrite an existing requester if the current user is authorized
             # (matches main's behavior where only admins could interact). This prevents
             # a non-authorized user providing follow-up from becoming the requester.
@@ -458,7 +466,8 @@ class MessageProcessor:
                 if not existing_requester or self.is_fully_authorized_user(user_id):
                     self.storage.set_pending_approval_requester(thread_key, user_id)
             elif response and self._is_approval_rejection(response):
-                pass
+                self.storage.set_pending_approval_requester(thread_key, user_id)
+                response = response.replace('[2PR_PENDING]', '').strip()
             else:
                 self.storage.clear_pending_approval_requester(thread_key)
 
@@ -474,13 +483,9 @@ class MessageProcessor:
                 response = str(response).strip()
 
             # Update context with new query and response (skip for slash commands to avoid duplication)
-            # Store confirmation-required turns as non-privileged so that a
-            # non-admin approver (e.g. repo maintainer) can see the action
-            # summary they need to approve.
-            store_privileged = privilege if not confirmation_required else False
             if not skip_context_storage:
                 self.storage.update_context(thread_key, query, response, session_id, new_session_id,
-                                            user_id=user_id, privileged=store_privileged)
+                                            user_id=user_id, privileged=privilege)
 
             # Format response for Slack before sending
             formatter = MessageFormatter()

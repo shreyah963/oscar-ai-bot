@@ -32,7 +32,6 @@ logger.setLevel(logging.INFO)
 # Fields redacted from write-operation audit logs
 _REDACTED_FIELDS = frozenset({"content", "body"})
 
-
 # ---------------------------------------------------------------------------
 # MCP param transforms
 # ---------------------------------------------------------------------------
@@ -201,7 +200,9 @@ def _validate_ref_name(name: str, ref_type: str) -> Optional[Dict[str, Any]]:
             "status": "error",
             "message": f"VALIDATION ERROR: {ref_type} name must not be empty.",
         }
-    if '..' in name or name.startswith('.') or name.endswith('.') or name.endswith('.lock'):
+    if ('..' in name or '//' in name or name.startswith('.')
+            or name.endswith('.') or name.endswith('.lock')
+            or name.startswith('-') or name.startswith('/') or name.endswith('/')):
         return {
             "status": "error",
             "message": f"VALIDATION ERROR: {ref_type} name '{name}' contains invalid sequences.",
@@ -562,7 +563,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             approval_error = validate_two_person_approval(
                 session_attributes, enable_2pr,
                 f'action={function_name}',
-                auth_policy="admin",
+                auth_policy=func_def.auth_policy,
             )
             if approval_error:
                 audit_log(function_name, params, approval_error["message"], False, request_id, session_attributes)

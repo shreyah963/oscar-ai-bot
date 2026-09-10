@@ -41,6 +41,12 @@ class FunctionDef:
     # Direct API handler: (token, params, request_id) -> result
     handler: Optional[Callable] = None
 
+    def __post_init__(self):
+        if self.write and self.auth_policy is None:
+            raise ValueError(
+                "write functions must declare an explicit auth_policy"
+            )
+
     @property
     def is_direct_api(self) -> bool:
         return self.mcp_tool is None

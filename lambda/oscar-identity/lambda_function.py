@@ -72,7 +72,7 @@ METRICS_SECRET_NAME = os.environ.get("METRICS_SECRET_NAME", "")
 
 def lambda_handler(event, context):
     # Route: EventBridge scheduled events
-    if event.get("source") == "aws.events" or event.get("action") == "maintainer_sync":
+    if event.get("source") == "aws.events":
         if event.get("action") == "maintainer_sync":
             return _handle_maintainer_sync()
         return _handle_validation()

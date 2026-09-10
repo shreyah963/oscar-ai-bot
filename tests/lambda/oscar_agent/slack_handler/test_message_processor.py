@@ -4,6 +4,7 @@
 
 import os
 import sys
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -69,7 +70,10 @@ class TestBuildIdentityAttributes:
     def test_pending_approval_different_user_sets_approver(self):
         """A different user replying after a confirmation prompt becomes approver."""
         storage = Mock()
-        storage.get_context.return_value = {'pending_approval_requester': 'U_REQ'}
+        storage.get_context.return_value = {
+            'pending_approval_requester': 'U_REQ',
+            'pending_approval_expires_at': int(time.time()) + 300,
+        }
         mp = _make_processor(storage=storage)
         self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_APP')
@@ -77,17 +81,46 @@ class TestBuildIdentityAttributes:
         assert result['requester_user_id'] == 'U_REQ'
         assert result['approver_user_id'] == 'U_APP'
         assert 'approver_github_handle' in result
+        storage.clear_pending_approval_requester.assert_called_once_with('C123_ts1')
 
     def test_pending_approval_same_user_no_approver(self):
         """The same user replying after their own confirmation prompt gets no approver."""
         storage = Mock()
-        storage.get_context.return_value = {'pending_approval_requester': 'U_SAME'}
+        storage.get_context.return_value = {
+            'pending_approval_requester': 'U_SAME',
+            'pending_approval_expires_at': int(time.time()) + 300,
+        }
         mp = _make_processor(storage=storage)
         self._mock_identity(mp)
         result = mp._build_identity_attributes('C123_ts1', 'U_SAME')
         assert result['current_user_id'] == 'U_SAME'
         assert result['requester_user_id'] == 'U_SAME'
         assert 'approver_user_id' not in result
+
+    def test_expired_pending_approval_is_ignored(self):
+        """An expired pending approval is treated as if no approval is pending."""
+        storage = Mock()
+        storage.get_context.return_value = {
+            'pending_approval_requester': 'U_REQ',
+            'pending_approval_expires_at': int(time.time()) - 10,
+        }
+        mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
+        result = mp._build_identity_attributes('C123_ts1', 'U_APP')
+        assert result['requester_user_id'] == 'U_APP'
+        assert 'approver_user_id' not in result
+        storage.clear_pending_approval_requester.assert_called_once_with('C123_ts1')
+
+    def test_missing_expires_at_treated_as_expired(self):
+        """Old-format pending approval (no expires_at) is treated as expired."""
+        storage = Mock()
+        storage.get_context.return_value = {'pending_approval_requester': 'U_REQ'}
+        mp = _make_processor(storage=storage)
+        self._mock_identity(mp)
+        result = mp._build_identity_attributes('C123_ts1', 'U_APP')
+        assert result['requester_user_id'] == 'U_APP'
+        assert 'approver_user_id' not in result
+        storage.clear_pending_approval_requester.assert_called_once_with('C123_ts1')
 
     def test_no_pending_approval_current_user_is_requester(self):
         """Without a pending approval, the current user is the requester (no approver)."""

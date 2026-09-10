@@ -45,11 +45,21 @@ def validate_two_person_approval(
     approver_user_id = session_attributes.get('approver_user_id')
 
     if not requester_user_id or not approver_user_id:
+        if session_attributes.get('approval_expired') == 'True':
+            return {
+                'status': 'error',
+                'message': (
+                    'SECURITY ERROR: The approval window has expired. '
+                    'Please re-request the action to get a new confirmation prompt. '
+                    '[2PR_PENDING]'
+                ),
+            }
         return {
             'status': 'error',
             'message': (
                 'SECURITY ERROR: Two-person approval requires both a requester and a distinct '
-                'approver. A second authorized user must confirm this action in the thread.'
+                'approver. A second authorized user must confirm this action in the thread. '
+                '[2PR_PENDING]'
             ),
         }
 
@@ -58,7 +68,8 @@ def validate_two_person_approval(
             'status': 'error',
             'message': (
                 f'SECURITY ERROR: Self-approval is not permitted. The user who requested this action '
-                f'({requester_user_id.strip()}) cannot also approve it. A different authorized user must confirm.'
+                f'({requester_user_id.strip()}) cannot also approve it. A different authorized user must confirm. '
+                '[2PR_PENDING]'
             ),
         }
 
@@ -68,7 +79,8 @@ def validate_two_person_approval(
                 'status': 'error',
                 'message': (
                     'SECURITY ERROR: This maintainer operation requires approval from an admin. '
-                    'Please have an admin reply to confirm.'
+                    'Please have an admin reply to confirm. '
+                    '[2PR_PENDING]'
                 ),
             }
 
@@ -78,7 +90,8 @@ def validate_two_person_approval(
                 'status': 'error',
                 'message': (
                     'SECURITY ERROR: This admin operation requires approval from a different admin. '
-                    'Please have another admin reply to confirm.'
+                    'Please have another admin reply to confirm. '
+                    '[2PR_PENDING]'
                 ),
             }
 
