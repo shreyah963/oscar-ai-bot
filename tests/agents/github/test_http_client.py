@@ -250,6 +250,7 @@ class TestTokenManager:
     def test_get_token_cached(self, mock_post, mock_jwt):
         mod = _load_http_client()
         mock_resp = MagicMock()
+        mock_resp.status_code = 201
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.return_value = {
             "token": "ghs_cached",
@@ -270,6 +271,7 @@ class TestTokenManager:
     def test_get_token_org_wide(self, mock_post, mock_jwt):
         mod = _load_http_client()
         mock_resp = MagicMock()
+        mock_resp.status_code = 201
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.return_value = {
             "token": "ghs_org",
@@ -289,6 +291,7 @@ class TestTokenManager:
     def test_get_token_refreshes_on_scope_change(self, mock_post, mock_jwt):
         mod = _load_http_client()
         mock_resp = MagicMock()
+        mock_resp.status_code = 201
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.return_value = {
             "token": "ghs_new_scope",
@@ -309,6 +312,7 @@ class TestTokenManager:
     def test_get_token_no_expires_at_defaults(self, mock_post, mock_jwt):
         mod = _load_http_client()
         mock_resp = MagicMock()
+        mock_resp.status_code = 201
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.return_value = {"token": "ghs_noexpiry"}
         mock_post.return_value = mock_resp
