@@ -6,6 +6,7 @@ and are wired correctly into CDK stacks."""
 import ast
 import glob
 import os
+from unittest.mock import patch
 
 import pytest
 from aws_cdk import App, Environment
@@ -356,6 +357,24 @@ class TestGitHubAgentWriteOperations:
         agent = GitHubAgent()
         instruction = agent.get_agent_instruction()
         assert "ORGANIZATION ENFORCEMENT" in instruction
+
+    @pytest.mark.parametrize("env_var", ["ENABLE_2PR", "GITHUB_ENABLE_2PR"])
+    def test_github_agent_instruction_2pr_enabled(self, env_var):
+        """When 2PR is enabled, instruction mentions two-person review."""
+        with patch.dict(os.environ, {env_var: "true"}):
+            agent = GitHubAgent()
+            instruction = agent.get_agent_instruction()
+            assert "TWO-PERSON REVIEW" in instruction
+            assert "different authorized user" in instruction
+
+    def test_github_agent_instruction_2pr_disabled(self):
+        """When 2PR is disabled, instruction uses single-user confirmation."""
+        with patch.dict(os.environ, {"ENABLE_2PR": "false", "GITHUB_ENABLE_2PR": "false"}):
+            agent = GitHubAgent()
+            instruction = agent.get_agent_instruction()
+            assert "CONFIRMATION (MANDATORY" in instruction
+            assert "same user" in instruction.lower()
+            assert "TWO-PERSON REVIEW" not in instruction
 
 
 class TestGitHubAuthorizer:

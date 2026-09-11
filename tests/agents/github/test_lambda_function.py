@@ -645,3 +645,390 @@ class TestGroupGate:
         }, None)
         body = _get_body(result)
         assert "AUTHORIZATION ERROR" not in body
+
+
+class TestValidateRefName:
+    """Cover _validate_ref_name: empty, invalid sequences, bad chars."""
+
+    def test_empty_name_returns_error(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name("", "Tag")
+        assert result["status"] == "error"
+        assert "must not be empty" in result["message"]
+
+    def test_double_dot_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name("v1..2", "Tag")
+        assert result["status"] == "error"
+        assert "invalid sequences" in result["message"]
+
+    def test_starts_with_dot_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name(".hidden", "Branch")
+        assert result["status"] == "error"
+        assert "invalid sequences" in result["message"]
+
+    def test_ends_with_lock_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name("main.lock", "Branch")
+        assert result["status"] == "error"
+        assert "invalid sequences" in result["message"]
+
+    def test_starts_with_dash_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name("-bad", "Tag")
+        assert result["status"] == "error"
+        assert "invalid sequences" in result["message"]
+
+    def test_invalid_chars_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_ref_name("v1.0 beta", "Tag")
+        assert result["status"] == "error"
+        assert "invalid characters" in result["message"]
+
+    def test_valid_name_returns_none(self):
+        mod = _load_lambda()
+        assert mod._validate_ref_name("v3.0.0", "Tag") is None
+
+    def test_valid_name_with_slash(self):
+        mod = _load_lambda()
+        assert mod._validate_ref_name("release/3.0", "Branch") is None
+
+
+class TestResolveCommitSha:
+    """Cover _resolve_commit_sha: empty SHA → HEAD, short SHA → expand."""
+
+    @patch.dict(os.environ, {'GITHUB_SECRET_NAME': 'test'})
+    def test_empty_sha_resolves_to_head(self):
+        mod = _load_lambda()
+        mock_get = sys.modules['http_client'].get
+        mock_get.side_effect = [
+            {"default_branch": "main"},
+            {"commit": {"sha": "abc123full"}},
+        ]
+        result = mod._resolve_commit_sha("tok", "OpenSearch", "")
+        assert result == "abc123full"
+        assert mock_get.call_count == 2
+
+    @patch.dict(os.environ, {'GITHUB_SECRET_NAME': 'test'})
+    def test_short_sha_expanded(self):
+        mod = _load_lambda()
+        mock_get = sys.modules['http_client'].get
+        mock_get.return_value = {"sha": "abc123fullexpanded"}
+        result = mod._resolve_commit_sha("tok", "OpenSearch", "abc123")
+        assert result == "abc123fullexpanded"
+
+    @patch.dict(os.environ, {'GITHUB_SECRET_NAME': 'test'})
+    def test_full_sha_returned_as_is(self):
+        mod = _load_lambda()
+        full = "a" * 40
+        result = mod._resolve_commit_sha("tok", "OpenSearch", full)
+        assert result == full
+
+
+class TestIsRepoMaintainer:
+    """Cover _is_repo_maintainer: admin, no handle, in maintainers, not in maintainers."""
+
+    def test_admin_always_true(self):
+        mod = _load_lambda()
+        assert mod._is_repo_maintainer("tok", "repo", "", "True") is True
+
+    def test_no_handle_returns_false(self):
+        mod = _load_lambda()
+        assert mod._is_repo_maintainer("tok", "repo", "", "False") is False
+
+    def test_maintainer_in_list(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "success",
+            "maintainers": [{"github_id": "alice"}, {"github_id": "bob"}],
+        })
+        assert mod._is_repo_maintainer("tok", "repo", "alice", "False") is True
+
+    def test_not_in_maintainer_list(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "success",
+            "maintainers": [{"github_id": "alice"}],
+        })
+        assert mod._is_repo_maintainer("tok", "repo", "bob", "False") is False
+
+    def test_maintainer_lookup_failure(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "error",
+        })
+        assert mod._is_repo_maintainer("tok", "repo", "alice", "False") is False
+
+
+class TestValidateAdminOnly:
+    """Cover _validate_admin_only: non-admin rejected, admin passes."""
+
+    def test_non_admin_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_admin_only({"requester_is_admin": "False"}, "close_issue")
+        assert result["status"] == "error"
+        assert "admin privileges" in result["message"]
+
+    def test_admin_passes(self):
+        mod = _load_lambda()
+        result = mod._validate_admin_only({"requester_is_admin": "True"}, "close_issue")
+        assert result is None
+
+
+class TestValidateMaintainerAuthorization:
+    """Cover _validate_maintainer_authorization: missing requester, non-maintainer, passes."""
+
+    def test_missing_requester_rejected(self):
+        mod = _load_lambda()
+        result = mod._validate_maintainer_authorization("tok", "repo", {}, "create_tag")
+        assert result["status"] == "error"
+        assert "requester" in result["message"]
+
+    def test_non_maintainer_rejected(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "success",
+            "maintainers": [{"github_id": "alice"}],
+        })
+        result = mod._validate_maintainer_authorization(
+            "tok", "repo",
+            {"requester_user_id": "U1", "requester_is_admin": "False", "requester_github_handle": "bob"},
+            "create_tag on repo",
+        )
+        assert result["status"] == "error"
+        assert "not an admin or maintainer" in result["message"]
+
+    def test_maintainer_passes(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "success",
+            "maintainers": [{"github_id": "alice"}],
+        })
+        result = mod._validate_maintainer_authorization(
+            "tok", "repo",
+            {"requester_user_id": "U1", "requester_is_admin": "False", "requester_github_handle": "alice"},
+            "create_tag on repo",
+        )
+        assert result is None
+
+
+class TestHandleCreateRef:
+    """Cover _handle_create_ref: validation error, auth error."""
+
+    @patch.dict(os.environ, {'GITHUB_SECRET_NAME': 'test'})
+    def test_invalid_ref_name_returns_error(self):
+        mod = _load_lambda()
+        result = mod._handle_create_ref(
+            "tok", {"repo": "OpenSearch", "tag_name": ""}, "req1",
+            {"requester_user_id": "U1", "requester_is_admin": "True"},
+            ref_type="tags",
+        )
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert "must not be empty" in parsed["message"]
+
+    @patch.dict(os.environ, {'GITHUB_SECRET_NAME': 'test'})
+    def test_auth_error_returns_error(self):
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.return_value = json.dumps({
+            "status": "success", "maintainers": [],
+        })
+        result = mod._handle_create_ref(
+            "tok", {"repo": "OpenSearch", "tag_name": "v1.0.0"}, "req1",
+            {"requester_user_id": "U1", "requester_is_admin": "False", "requester_github_handle": "nobody"},
+            ref_type="tags",
+        )
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert "not an admin or maintainer" in parsed["message"]
+
+
+class TestFunctionGateAdminPolicy:
+    """Cover the per-function admin gate (lines 552-556) in lambda_handler."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_non_admin_blocked_by_function_gate(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "close_issue",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "issue_number", "value": "7"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_NON",
+                "requester_is_admin": "False",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "admin privileges" in body
+
+
+class TestTwoPRApprovalInHandler:
+    """Cover the 2PR approval_error branch (lines 555-556) in lambda_handler."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_2pr_rejection_returned(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        result = mod.lambda_handler({
+            "function": "close_issue",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "issue_number", "value": "7"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_ADM",
+                "requester_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "SECURITY ERROR" in body
+
+
+class TestForceMerge2PR:
+    """Cover force merge 2PR approval + logging (lines 601-617)."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_force_merge_with_valid_2pr_succeeds(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        guardrail_fail = MagicMock(return_value={"all_passed": False, "message": "CI failing"})
+        mod = _load_lambda(guardrails_overrides={"validate_single_pr": guardrail_fail})
+
+        result = mod.lambda_handler({
+            "function": "merge_pr",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "pr_number", "value": "10"},
+                {"name": "force", "value": "true"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_REQ",
+                "approver_user_id": "U_APP",
+                "requester_is_admin": "True",
+                "approver_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "success" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_force_merge_rejects_without_approver(self, mock_boto):
+        """When global 2PR is off, force merge still enforces its own 2PR — rejection path."""
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        guardrail_fail = MagicMock(return_value={"all_passed": False, "message": "CI failing"})
+        mod = _load_lambda(guardrails_overrides={"validate_single_pr": guardrail_fail})
+
+        result = mod.lambda_handler({
+            "function": "merge_pr",
+            "parameters": [
+                {"name": "repo", "value": "OpenSearch"},
+                {"name": "pr_number", "value": "10"},
+                {"name": "force", "value": "true"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_ADM",
+                "requester_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "SECURITY ERROR" in body
+
+
+class TestGenericGuardrailFailure:
+    """Cover the non-merge guardrail failure branch (lines 630-637)."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'true', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_bulk_comment_guardrail_blocks(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        guardrail_fail = MagicMock(return_value={"all_passed": False, "message": "Invalid targets"})
+        mod = _load_lambda(guardrails_overrides={"validate_bulk_comment": guardrail_fail})
+
+        result = mod.lambda_handler({
+            "function": "bulk_comment",
+            "parameters": [
+                {"name": "issues", "value": "OpenSearch#1"},
+                {"name": "body", "value": "test"},
+            ],
+            "sessionAttributes": {
+                "requester_user_id": "U_REQ",
+                "approver_user_id": "U_APP",
+                "requester_is_admin": "True",
+                "approver_is_admin": "True",
+                "requester_tier": "admin",
+            },
+        }, None)
+        body = _get_body(result)
+        assert "Invalid targets" in body
+
+
+class TestLambdaHandlerErrors:
+    """Cover exception handlers at the bottom of lambda_handler (lines 655-665)."""
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_github_api_error_handled(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        GitHubAPIError = sys.modules['http_client'].GitHubAPIError
+        sys.modules['github_api'].get_repo_maintainers.side_effect = GitHubAPIError(404, "Not Found", "/repos/x")
+
+        result = mod.lambda_handler({
+            "function": "get_repo_maintainers",
+            "parameters": [{"name": "repo", "value": "OpenSearch"}],
+        }, None)
+        body = _get_body(result)
+        assert "error" in body
+
+    @patch.dict(os.environ, {'ENABLE_2PR': 'false', 'GITHUB_SECRET_NAME': 'test'})
+    @patch('boto3.client')
+    def test_generic_exception_handled(self, mock_boto):
+        mock_boto.return_value.get_secret_value.return_value = {
+            'SecretString': json.dumps({
+                'GITHUB_APP_ID': '1', 'GITHUB_PRIVATE_KEY': 'k', 'GITHUB_INSTALLATION_ID': '2',
+            })
+        }
+        mod = _load_lambda()
+        sys.modules['github_api'].get_repo_maintainers.side_effect = RuntimeError("boom")
+
+        result = mod.lambda_handler({
+            "function": "get_repo_maintainers",
+            "parameters": [{"name": "repo", "value": "OpenSearch"}],
+        }, None)
+        body = _get_body(result)
+        assert "boom" in body

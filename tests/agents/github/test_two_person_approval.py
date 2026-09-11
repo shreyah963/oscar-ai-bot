@@ -753,5 +753,145 @@ class TestTwoPersonApprovalCreateBranch(unittest.TestCase):
         mock_create_ref.assert_not_called()
 
 
+class TestApprovalGuardExpired(unittest.TestCase):
+    """Test the approval_expired branch in validate_two_person_approval."""
+
+    def test_expired_approval_returns_specific_error(self):
+        from oscar_shared.approval_guard import validate_two_person_approval
+        result = validate_two_person_approval(
+            session_attributes={
+                'requester_user_id': 'U_LATE',
+                'approval_expired': 'True',
+            },
+            enable_2pr=True,
+            action_label='action=test',
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result['status'], 'error')
+        self.assertIn('approval window has expired', result['message'])
+        self.assertIn('[2PR_PENDING]', result['message'])
+
+    def test_expired_not_set_returns_generic_error(self):
+        from oscar_shared.approval_guard import validate_two_person_approval
+        result = validate_two_person_approval(
+            session_attributes={'requester_user_id': 'U_ONLY'},
+            enable_2pr=True,
+            action_label='action=test',
+        )
+        self.assertIsNotNone(result)
+        self.assertIn('Two-person approval requires', result['message'])
+
+    def test_maintainer_op_non_admin_approver_rejected(self):
+        from oscar_shared.approval_guard import validate_two_person_approval
+        result = validate_two_person_approval(
+            session_attributes={
+                'requester_user_id': 'U_REQ',
+                'approver_user_id': 'U_APP',
+                'approver_is_admin': 'False',
+            },
+            enable_2pr=True,
+            action_label='action=test',
+            auth_policy='maintainer',
+        )
+        self.assertIsNotNone(result)
+        self.assertIn('requires approval from an admin', result['message'])
+
+
+class _SharedLayerMixin:
+    """Add shared layer to sys.path for direct imports."""
+
+    @classmethod
+    def setUpClass(cls):
+        if _SHARED_LAYER_DIR not in sys.path:
+            sys.path.insert(0, _SHARED_LAYER_DIR)
+
+    @classmethod
+    def tearDownClass(cls):
+        if _SHARED_LAYER_DIR in sys.path:
+            sys.path.remove(_SHARED_LAYER_DIR)
+        sys.modules.pop('oscar_shared.approval_guard', None)
+        sys.modules.pop('oscar_shared.auth_policy', None)
+
+
+class TestApprovalGuardAdminPolicy(_SharedLayerMixin, unittest.TestCase):
+    """Cover line 89: admin auth_policy with non-admin approver."""
+
+    def test_admin_op_non_admin_approver_rejected(self):
+        from oscar_shared.approval_guard import validate_two_person_approval
+        result = validate_two_person_approval(
+            session_attributes={
+                'requester_user_id': 'U_REQ',
+                'approver_user_id': 'U_APP',
+                'approver_is_admin': 'False',
+            },
+            enable_2pr=True,
+            action_label='action=test',
+            auth_policy='admin',
+        )
+        self.assertIsNotNone(result)
+        self.assertIn('requires approval from a different admin', result['message'])
+
+    def test_admin_op_admin_approver_passes(self):
+        from oscar_shared.approval_guard import validate_two_person_approval
+        result = validate_two_person_approval(
+            session_attributes={
+                'requester_user_id': 'U_REQ',
+                'approver_user_id': 'U_APP',
+                'approver_is_admin': 'True',
+            },
+            enable_2pr=True,
+            action_label='action=test',
+            auth_policy='admin',
+        )
+        self.assertIsNone(result)
+
+
+class TestAuthPolicyDeriveTier(_SharedLayerMixin, unittest.TestCase):
+    """Cover derive_tier — specifically the maintainer branch (line 74)."""
+
+    def test_derive_tier_admin(self):
+        from oscar_shared.auth_policy import derive_tier
+        self.assertEqual(derive_tier(True, False), "admin")
+
+    def test_derive_tier_maintainer(self):
+        from oscar_shared.auth_policy import derive_tier
+        self.assertEqual(derive_tier(False, True), "maintainer")
+
+    def test_derive_tier_contributor(self):
+        from oscar_shared.auth_policy import derive_tier
+        self.assertEqual(derive_tier(False, False), "contributor")
+
+    def test_derive_tier_admin_trumps_maintainer(self):
+        from oscar_shared.auth_policy import derive_tier
+        self.assertEqual(derive_tier(True, True), "admin")
+
+
+class TestFunctionDefPostInit(unittest.TestCase):
+    """Cover registry.py line 46: write=True with no auth_policy raises ValueError."""
+
+    def test_write_without_auth_policy_raises(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(__file__), '..', '..', '..', 'agents', 'github', 'lambda',
+        ))
+        try:
+            from registry import FunctionDef
+            with self.assertRaises(ValueError) as ctx:
+                FunctionDef(write=True, auth_policy=None)
+            self.assertIn("write functions must declare", str(ctx.exception))
+        finally:
+            sys.modules.pop('registry', None)
+
+    def test_write_with_auth_policy_ok(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(__file__), '..', '..', '..', 'agents', 'github', 'lambda',
+        ))
+        try:
+            from registry import FunctionDef
+            fd = FunctionDef(write=True, auth_policy="admin")
+            self.assertTrue(fd.write)
+        finally:
+            sys.modules.pop('registry', None)
+
+
 if __name__ == '__main__':
     unittest.main()
