@@ -36,6 +36,7 @@ _REDACTED_FIELDS = frozenset({"content", "body"})
 # MCP param transforms
 # ---------------------------------------------------------------------------
 
+
 def _transform_get_pr_details(params: Dict[str, str]) -> Dict[str, Any]:
     args = dict(params)
     args["pullNumber"] = int(args.pop("pr_number"))
