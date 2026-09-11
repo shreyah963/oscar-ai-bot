@@ -14,11 +14,11 @@ from typing import Any, Dict, Optional
 
 import boto3
 from authorizer import audit_log, validate_org_scope
-from github_api import (bulk_comment, create_ref,
-                        get_repo_maintainers, transfer_issue)
+from github_api import (bulk_comment, create_ref, get_repo_maintainers,
+                        transfer_issue)
 from guardrails import (bulk_merge, list_merge_candidates,
-                        validate_bulk_comment,
-                        validate_single_pr, validate_transfer_issue)
+                        validate_bulk_comment, validate_single_pr,
+                        validate_transfer_issue)
 from http_client import ORG, GitHubAPIError, get
 from mcp_client import MCPClient
 from oscar_shared.approval_guard import validate_two_person_approval
